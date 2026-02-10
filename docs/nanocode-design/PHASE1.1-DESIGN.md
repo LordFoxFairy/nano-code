@@ -56,8 +56,8 @@ interface CommandInstruction {
 
 1.  **Shell Pass-through (`!command`)**:
     *   遵循 Claude Code 惯例，使用 `!` 前缀执行 Shell 命令（底层映射到 `Bash` tool）。
-    *   格式: `! <command>`
-    *   示例: `!ls -la`, `!npm test`
+    *   格式: `` !`command` `` 或 `! command`
+    *   示例: `` !`ls -la` ``, `!npm test`
 
 2.  **Skill Invocation (`/command`)**:
     *   使用 Slash Commands 显式调用 Skill。
@@ -72,7 +72,8 @@ interface CommandInstruction {
 4.  **参数替换 (Argument Substitution)**:
     *   支持定义 Alias 或 Macro 时使用变量占位符。
     *   `$1`, `$2`, ...: 位置参数。
-    *   `$ARGUMENTS`: 所有参数的集合。
+    *   `$ARGUMENTS`: 所有参数的集合（原始字符串）。
+    *   `${SKILL_ROOT}`: 当前 Skill 的根目录路径。
     *   此功能主要用于 Custom Commands 定义（将在后续 Phase 支持）。
 
 ### 2.2 语义路由 (SemanticRouter)

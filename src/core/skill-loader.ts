@@ -11,25 +11,26 @@
  */
 
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename } from 'path';
+import { basename, join } from 'path';
+
 import { parseFrontmatter } from './frontmatter.js';
 import type {
-  Skill,
-  SkillFrontmatter,
-  Command,
-  CommandFrontmatter,
   Agent,
   AgentFrontmatter,
+  Command,
+  CommandFrontmatter,
   HooksJson,
+  Skill,
+  SkillFrontmatter,
   SkillLoaderResult,
-} from '../types/index.js';
+} from '../types';
 
 export class SkillLoader {
-  private skillsPath: string;
-  private skills: Map<string, Skill> = new Map();
-  private commands: Map<string, Command[]> = new Map();
-  private agents: Map<string, Agent[]> = new Map();
-  private hooks: Map<string, HooksJson> = new Map();
+  private readonly skillsPath: string;
+  private readonly skills: Map<string, Skill> = new Map();
+  private readonly commands: Map<string, Command[]> = new Map();
+  private readonly agents: Map<string, Agent[]> = new Map();
+  private readonly hooks: Map<string, HooksJson> = new Map();
 
   constructor(skillsPath: string) {
     this.skillsPath = skillsPath;

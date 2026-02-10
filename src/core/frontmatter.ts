@@ -71,7 +71,7 @@ function parseSimpleYaml(yaml: string): Record<string, unknown> {
     // Check for multiline continuation
     if (inMultiline) {
       if (line.startsWith('  ') || line.trim() === '') {
-        multilineValue.push(line.replace(/^  /, ''));
+        multilineValue.push(line.replace(/^ {2}/, ''));
         continue;
       } else {
         // End of multiline

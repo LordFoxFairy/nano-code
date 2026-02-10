@@ -10,7 +10,7 @@
  *   body content loaded when skill is triggered
  */
 
-import type { Skill } from '../types/index.js';
+import type { Skill } from '../types';
 
 export class PromptInjector {
   /**
