@@ -38,6 +38,12 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+tmp/
+
+tests
+
 docs
+
 CLAUDE.md
-tmp
+
+.agents/skills/TODO.md
