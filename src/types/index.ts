@@ -70,7 +70,49 @@ export interface HooksJson {
   };
 }
 
-// Hook Execution
+// Hook Execution Types (Phase 2)
+export interface HookExecutionInput {
+  /** Unique session identifier */
+  session_id: string;
+  /** Name of tool being invoked (e.g., "Edit", "Write") */
+  tool_name: string;
+  /** Tool-specific parameters */
+  tool_input: Record<string, unknown>;
+}
+
+export interface HookExecutionResult {
+  /** Process exit code */
+  exitCode: number;
+  /** Captured stdout */
+  stdout: string;
+  /** Captured stderr */
+  stderr: string;
+  /** true if exit code is 2 (block signal) */
+  blocked: boolean;
+}
+
+export interface HookEnvironment {
+  /** Skill root directory path */
+  SKILL_ROOT: string;
+  /** Current session ID */
+  SESSION_ID: string;
+  /** Optional: disable security reminders */
+  ENABLE_SECURITY_REMINDER?: string;
+}
+
+export type HookEventType = 'PreToolUse' | 'PostToolUse' | 'Stop' | 'UserPromptSubmit' | 'SessionStart';
+
+export interface RegisteredHook {
+  /** Skill name for namespace */
+  skillName: string;
+  /** Skill root path */
+  skillRoot: string;
+  /** Hook configuration */
+  config: HookConfig;
+  /** Matcher pattern */
+  matcher: string;
+}
+
 // Loader Result Types
 export interface SkillLoaderResult {
   skills: Skill[];
