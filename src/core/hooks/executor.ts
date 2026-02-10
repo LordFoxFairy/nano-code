@@ -11,7 +11,7 @@
  */
 
 import { spawn } from 'child_process';
-import type { HookConfig, HookExecutionInput, HookExecutionResult, HookEnvironment } from '../types';
+import type { HookConfig, HookExecutionInput, HookExecutionResult, HookEnvironment } from '../../types';
 
 export interface HookExecutorOptions {
   /** Timeout in milliseconds (default: 30000) */

@@ -6,7 +6,7 @@
  * and full regex patterns.
  */
 
-import type { HookMatcher as HookMatcherType } from '../types';
+import type { HookMatcher as HookMatcherType } from '../../types';
 
 export class HookMatcher {
   /**

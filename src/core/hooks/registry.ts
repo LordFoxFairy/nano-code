@@ -5,8 +5,8 @@
  * Manages hook lifecycle and provides lookup by event type.
  */
 
-import type { HooksJson, HookEventType, RegisteredHook } from '../types';
-import { HookMatcher } from './hook-matcher.js';
+import type { HooksJson, HookEventType, RegisteredHook } from '../../types';
+import { HookMatcher } from './matcher.js';
 
 export class HookRegistry {
   private readonly hooks: Map<HookEventType, RegisteredHook[]> = new Map();
