@@ -86,21 +86,80 @@ export class REPL {
         {
           configurable: { thread_id: this.session.threadId },
           signal: this.abortController.signal,
+          streamMode: 'values',
         },
       );
 
       let fullResponse = '';
+      let processedMessages = new Set<string>();
 
       for await (const chunk of stream) {
-        // Here we need to map deepagents/langchain chunks to our RenderAction
-        // Since I don't see the exact chunk structure from deepagents stream yet,
-        // I'll assume standard langchain chunks or deepagents custom chunks.
+        // Handle LangGraph values stream (returns full state)
+        if (chunk.messages && Array.isArray(chunk.messages)) {
+          const messages = chunk.messages;
 
-        // Placeholder mapping logic:
-        if (chunk.content) {
-          this.renderer.render({ type: 'text', content: chunk.content });
-          fullResponse += chunk.content;
+          // Process new messages we haven't seen yet
+          for (const msg of messages) {
+            // Simple deduplication - in a real app might need better logic
+            const msgId = msg.id || `${msg.role}-${msg.content?.substring(0, 20)}`;
+
+            if (!processedMessages.has(msgId) && msg.role === 'assistant') {
+              processedMessages.add(msgId);
+
+              if (msg.content) {
+                // If it's a string content
+                if (typeof msg.content === 'string') {
+                  this.renderer.render({ type: 'text', content: msg.content });
+                  fullResponse += msg.content;
+                } else if (Array.isArray(msg.content)) {
+                   // Handle array content (typically text + tool_use)
+                   for (const part of msg.content) {
+                     if (part.type === 'text') {
+                       this.renderer.render({ type: 'text', content: part.text });
+                       fullResponse += part.text;
+                     } else if (part.type === 'tool_use') {
+                        this.renderer.render({
+                          type: 'tool_call_start',
+                          toolName: part.name,
+                          args: part.input,
+                        });
+                        // We might want to show tool results too if they are in the message history
+                     }
+                   }
+                }
+              }
+
+              // Handle tool_use in array content
+              // if (Array.isArray(msg.content)) {
+              //   // Already handled in the loop above
+              // }
+
+              if (msg.tool_calls && msg.tool_calls.length > 0) {
+                 for (const toolCall of msg.tool_calls) {
+                    this.renderer.render({
+                      type: 'tool_call_start',
+                      toolName: toolCall.name,
+                      args: toolCall.args,
+                    });
+                 }
+              }
+            }
+
+            // Check for tool output messages to render results
+            if (!processedMessages.has(msgId) && msg.role === 'tool') {
+               processedMessages.add(msgId);
+               this.renderer.render({
+                 type: 'tool_result',
+                 toolName: msg.name,
+                 result: msg.content,
+                 success: !msg.is_error
+               });
+            }
+          }
+          continue;
         }
+
+        // Original logic for direct chunks if not using 'values' mode...
 
         // Logic for tool calls would go here based on chunk structure
         if (chunk.tool_calls) {

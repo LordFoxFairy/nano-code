@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 
 export interface RenderAction {
-  type: 'text' | 'tool_call_start' | 'tool_result' | 'thinking' | 'error';
+  type: 'text' | 'tool_call_start' | 'tool_result' | 'thinking' | 'error' | 'user_input';
   content?: string;
   toolName?: string;
   args?: any;
@@ -16,6 +16,13 @@ export class StreamingRenderer {
   constructor(private outputStream: any = process.stdout) {}
 
   render(action: RenderAction) {
+    // If spinner is active, stop it briefly to render text
+    if (this.spinner && action.type !== 'tool_result') {
+      // Don't stop spinner for text streaming unless it's a new line?
+      // Actually, if we are streaming text while spinner is active, it's weird.
+      // Usually text comes after tool result.
+    }
+
     switch (action.type) {
       case 'text':
         // For text, we write directly to output
@@ -23,6 +30,7 @@ export class StreamingRenderer {
         break;
 
       case 'tool_call_start':
+        // Ensure we are on a new line
         this.outputStream.write('\n');
         this.spinner = ora({
           text: `Running ${chalk.cyan(action.toolName ?? 'unknown tool')}...`,
@@ -31,19 +39,20 @@ export class StreamingRenderer {
         break;
 
       case 'tool_result':
-        const toolResult = action;
         if (this.spinner) {
-          if (toolResult.success) {
-            this.spinner.succeed(`Completed ${chalk.cyan(toolResult.toolName ?? 'unknown tool')}`);
+          if (action.success !== false) { // Default to true if undefined
+            this.spinner.succeed(`Completed ${chalk.cyan(action.toolName ?? 'unknown tool')}`);
           } else {
-            this.spinner.fail(`Failed ${chalk.cyan(toolResult.toolName ?? 'unknown tool')}`);
+            this.spinner.fail(`Failed ${chalk.cyan(action.toolName ?? 'unknown tool')}`);
           }
           this.spinner = null;
         }
 
         // Show result preview if available
-        if (toolResult.result) {
-          this.outputStream.write(chalk.dim(this.truncate(toolResult.result, 100)) + '\n');
+        if (action.result) {
+          // indent the result slightly
+          const indentedResult = action.result.split('\n').map(line => '  ' + line).join('\n');
+          this.outputStream.write(chalk.dim(this.truncate(indentedResult, 300)) + '\n');
         }
         break;
 
@@ -52,12 +61,21 @@ export class StreamingRenderer {
         break;
 
       case 'error':
+        if (this.spinner) {
+            this.spinner.fail('Error');
+            this.spinner = null;
+        }
         this.outputStream.write(chalk.red(action.content) + '\n');
+        break;
+
+      case 'user_input':
+        // Just for logging if needed
         break;
     }
   }
 
   private truncate(str: string, n: number) {
-    return str.length > n ? str.slice(0, n - 1) + '...' : str;
+    if (str.length <= n) return str;
+    return str.slice(0, n) + '... (truncated)';
   }
 }
