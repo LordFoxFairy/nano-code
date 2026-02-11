@@ -13,7 +13,7 @@ export function parseRoute(route: string): ResolvedRoute {
     throw new ConfigError(
       `Invalid route format: ${route}`,
       ConfigErrorCode.INVALID_ROUTE_FORMAT,
-      'Route must be a non-empty string in "provider:model" format'
+      'Route must be a non-empty string in "provider:model" format',
     );
   }
 
@@ -23,7 +23,7 @@ export function parseRoute(route: string): ResolvedRoute {
     throw new ConfigError(
       `Invalid route format: "${route}"`,
       ConfigErrorCode.INVALID_ROUTE_FORMAT,
-      'Route must contain a colon separator (e.g., "provider:model")'
+      'Route must contain a colon separator (e.g., "provider:model")',
     );
   }
 
@@ -34,7 +34,7 @@ export function parseRoute(route: string): ResolvedRoute {
     throw new ConfigError(
       `Invalid route format: "${route}"`,
       ConfigErrorCode.INVALID_ROUTE_FORMAT,
-      'Both provider and model must be specified'
+      'Both provider and model must be specified',
     );
   }
 
@@ -63,11 +63,11 @@ export function resolveEnvVar(value: string): string {
     const varName = defaultMatch[1];
     const defaultValue = defaultMatch[2];
     if (!varName || !defaultValue) {
-        throw new ConfigError(
-            `Invalid environment variable format: "${value}"`,
-             ConfigErrorCode.ENV_VAR_NOT_SET,
-             'Use $VAR, ${VAR}, or ${VAR:-default} format'
-        );
+      throw new ConfigError(
+        `Invalid environment variable format: "${value}"`,
+        ConfigErrorCode.ENV_VAR_NOT_SET,
+        'Use $VAR, ${VAR}, or ${VAR:-default} format',
+      );
     }
     return process.env[varName] || defaultValue;
   }
@@ -77,18 +77,18 @@ export function resolveEnvVar(value: string): string {
   if (braceMatch) {
     const varName = braceMatch[1];
     if (!varName) {
-        throw new ConfigError(
-            `Invalid environment variable format: "${value}"`,
-            ConfigErrorCode.ENV_VAR_NOT_SET,
-            'Use $VAR, ${VAR}, or ${VAR:-default} format'
-        );
+      throw new ConfigError(
+        `Invalid environment variable format: "${value}"`,
+        ConfigErrorCode.ENV_VAR_NOT_SET,
+        'Use $VAR, ${VAR}, or ${VAR:-default} format',
+      );
     }
     const envValue = process.env[varName];
     if (envValue === undefined) {
       throw new ConfigError(
         `Environment variable ${varName} is not set`,
         ConfigErrorCode.ENV_VAR_NOT_SET,
-        `Please set ${varName} in your environment or .env file`
+        `Please set ${varName} in your environment or .env file`,
       );
     }
     return envValue;
@@ -99,18 +99,18 @@ export function resolveEnvVar(value: string): string {
   if (simpleMatch) {
     const varName = simpleMatch[1];
     if (!varName) {
-        throw new ConfigError(
-             `Invalid environment variable format: "${value}"`,
-             ConfigErrorCode.ENV_VAR_NOT_SET,
-             'Use $VAR, ${VAR}, or ${VAR:-default} format'
-        );
+      throw new ConfigError(
+        `Invalid environment variable format: "${value}"`,
+        ConfigErrorCode.ENV_VAR_NOT_SET,
+        'Use $VAR, ${VAR}, or ${VAR:-default} format',
+      );
     }
     const envValue = process.env[varName];
     if (envValue === undefined) {
       throw new ConfigError(
         `Environment variable ${varName} is not set`,
         ConfigErrorCode.ENV_VAR_NOT_SET,
-        `Please set ${varName} in your environment or .env file`
+        `Please set ${varName} in your environment or .env file`,
       );
     }
     return envValue;
@@ -121,7 +121,7 @@ export function resolveEnvVar(value: string): string {
     throw new ConfigError(
       `Invalid environment variable format: "${value}"`,
       ConfigErrorCode.ENV_VAR_NOT_SET,
-      'Use $VAR, ${VAR}, or ${VAR:-default} format'
+      'Use $VAR, ${VAR}, or ${VAR:-default} format',
     );
   }
 
@@ -169,7 +169,7 @@ export function validateRouterModels(config: NanoConfig): void {
     throw new ConfigError(
       'Missing router configuration',
       ConfigErrorCode.MISSING_REQUIRED_FIELD,
-      'Configuration must include a "router" section'
+      'Configuration must include a "router" section',
     );
   }
 
@@ -177,7 +177,7 @@ export function validateRouterModels(config: NanoConfig): void {
     throw new ConfigError(
       'Missing providers configuration',
       ConfigErrorCode.MISSING_REQUIRED_FIELD,
-      'Configuration must include a "providers" array'
+      'Configuration must include a "providers" array',
     );
   }
 
@@ -197,13 +197,13 @@ export function validateRouterModels(config: NanoConfig): void {
 
       // Find the provider in the configuration
       // We look for a provider whose name matches the provider part of the route string
-      const provider = providers.find(p => p.name === parsedProviderName);
+      const provider = providers.find((p) => p.name === parsedProviderName);
 
       if (!provider) {
         throw new ConfigError(
           `Provider "${parsedProviderName}" referenced in router.${key} not found`,
           ConfigErrorCode.PROVIDER_NOT_FOUND,
-          `Define a provider named "${parsedProviderName}" in the providers list`
+          `Define a provider named "${parsedProviderName}" in the providers list`,
         );
       }
 
@@ -213,7 +213,7 @@ export function validateRouterModels(config: NanoConfig): void {
           throw new ConfigError(
             `Model "${modelId}" not found in provider "${parsedProviderName}" configuration`,
             ConfigErrorCode.MODEL_NOT_FOUND,
-            `Available models for ${parsedProviderName}: ${provider.models.join(', ')}`
+            `Available models for ${parsedProviderName}: ${provider.models.join(', ')}`,
           );
         }
       }
@@ -224,7 +224,7 @@ export function validateRouterModels(config: NanoConfig): void {
       // Rethrow unexpected errors as config errors
       throw new ConfigError(
         `Error validating router.${key}: ${(error as Error).message}`,
-        ConfigErrorCode.INVALID_ROUTE_FORMAT
+        ConfigErrorCode.INVALID_ROUTE_FORMAT,
       );
     }
   }
@@ -235,7 +235,7 @@ export function validateRouterModels(config: NanoConfig): void {
       throw new ConfigError(
         `Invalid default mode: "${settings.defaultMode}"`,
         ConfigErrorCode.INVALID_JSON, // Using generic error for logic
-        `Default mode must be one of: ${routerKeys.join(', ')}`
+        `Default mode must be one of: ${routerKeys.join(', ')}`,
       );
     }
   }

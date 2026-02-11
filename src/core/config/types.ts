@@ -57,7 +57,6 @@ export interface RouterConfig {
  */
 export type InferProviderType = (config: Partial<ProviderConfig>) => ProviderType;
 
-
 /**
  * Configuration for interruption behavior
  */

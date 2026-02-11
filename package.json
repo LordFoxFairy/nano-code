@@ -4,7 +4,7 @@
   "description": "Open-source, local-first AI coding agent framework",
   "type": "module",
   "bin": {
-    "nanocode": "./dist/index.js"
+    "minicode": "./dist/index.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

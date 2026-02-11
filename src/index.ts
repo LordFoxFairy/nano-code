@@ -4,7 +4,7 @@ import { Command } from 'commander';
 const program = new Command();
 
 program
-  .name('nanocode')
+  .name('minicode')
   .description('AI Coding Agent')
   .version('0.1.0')
   .action(() => {

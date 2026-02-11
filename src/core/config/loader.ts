@@ -1,9 +1,9 @@
 import fs from 'fs/promises';
-import path from 'path';
 import os from 'os';
-import { NanoConfig, ProviderConfig, SettingsConfig } from './types';
-import { ConfigError, ConfigErrorCode } from '../errors';
-import { validateRouterModels } from './parser';
+import path from 'path';
+import type { NanoConfig, ProviderConfig, SettingsConfig } from './types.js';
+import { ConfigError, ConfigErrorCode } from '../errors/index.js';
+import { validateRouterModels } from './parser.js';
 
 const AGENTS_DIR_NAME = '.agents';
 const CONFIG_FILE_NAME = 'config.json';
@@ -55,7 +55,13 @@ export async function loadConfig(options: { cwd?: string } = {}): Promise<NanoCo
   // 4. Validate the final configuration
   // Skip validation if config is empty (default) to support init flows
   // Also check if any other router keys are set besides opus
-  if (config.providers.length > 0 || config.router.opus !== '' || config.router.sonnet !== '' || config.router.haiku !== '' || config.router.default !== '') {
+  if (
+    config.providers.length > 0 ||
+    config.router.opus !== '' ||
+    config.router.sonnet !== '' ||
+    config.router.haiku !== '' ||
+    config.router.default !== ''
+  ) {
     validateRouterModels(config);
   }
 
@@ -75,7 +81,7 @@ export function mergeConfigs(global: NanoConfig, local: NanoConfig): NanoConfig 
   const result = {
     providers: mergeProviders(global.providers, local.providers),
     router: { ...global.router, ...local.router },
-    settings: { ...global.settings }
+    settings: { ...global.settings },
   } as NanoConfig;
 
   if (local.settings) {
@@ -97,17 +103,17 @@ export function getDefaultConfig(): NanoConfig {
       opus: '',
       sonnet: '',
       haiku: '',
-      default: ''
+      default: '',
     },
     settings: {
       defaultMode: 'sonnet',
       interruptOn: {
         write_file: true,
         edit_file: true,
-        execute: true
+        execute: true,
       },
-      streaming: true
-    }
+      streaming: true,
+    },
   };
 }
 
@@ -128,30 +134,36 @@ async function readConfigFile(filePath: string): Promise<NanoConfig | null> {
       throw new ConfigError(
         `Invalid JSON in config file: ${filePath}`,
         ConfigErrorCode.INVALID_JSON,
-        'Check the configuration file syntax.'
+        'Check the configuration file syntax.',
       );
     }
     throw error;
   }
 }
 
-function mergeProviders(globalList: ProviderConfig[], localList: ProviderConfig[]): ProviderConfig[] {
+function mergeProviders(
+  globalList: ProviderConfig[],
+  localList: ProviderConfig[],
+): ProviderConfig[] {
   const providerMap = new Map<string, ProviderConfig>();
 
   // Add global providers
   if (globalList) {
-    globalList.forEach(p => providerMap.set(p.name, p));
+    globalList.forEach((p) => providerMap.set(p.name, p));
   }
 
   // Add/Override local providers
   if (localList) {
-    localList.forEach(p => providerMap.set(p.name, p));
+    localList.forEach((p) => providerMap.set(p.name, p));
   }
 
   return Array.from(providerMap.values());
 }
 
-function mergeSettings(globalSettings?: SettingsConfig, localSettings?: SettingsConfig): SettingsConfig {
+function mergeSettings(
+  globalSettings?: SettingsConfig,
+  localSettings?: SettingsConfig,
+): SettingsConfig {
   const result: SettingsConfig = { ...(globalSettings || {}) };
   const local = localSettings || {};
 
@@ -162,7 +174,7 @@ function mergeSettings(globalSettings?: SettingsConfig, localSettings?: Settings
   if (globalSettings?.interruptOn || local.interruptOn) {
     result.interruptOn = {
       ...(globalSettings?.interruptOn || {}),
-      ...(local.interruptOn || {})
+      ...(local.interruptOn || {}),
     };
   }
 

@@ -1,6 +1,6 @@
+import path from 'path';
+import fs from 'fs-extra';
 import { execa } from 'execa';
-import * as fs from 'fs-extra';
-import * as path from 'path';
 
 export interface ExecuteResult {
   code: number;
@@ -14,65 +14,77 @@ export class ShellSession {
 
   constructor(initialCwd: string) {
     this.currentCwd = path.resolve(initialCwd);
-    this.env = Object.entries(process.env).reduce((acc, [k, v]) => {
-      if (typeof v === 'string') acc[k] = v;
-      return acc;
-    }, {} as Record<string, string>);
+    this.env = Object.entries(process.env).reduce(
+      (acc, [k, v]) => {
+        if (typeof v === 'string') acc[k] = v;
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
   }
 
   // Execute command and maintain CWD state
   async execute(command: string, timeout: number = 120000): Promise<ExecuteResult> {
     if (this.isDangerous(command)) {
-        throw new Error(`Dangerous command execution blocked: ${command}`);
+      throw new Error(`Dangerous command execution blocked: ${command}`);
     }
 
     // Use a unique delimiter to capture PWD after execution
     const delimiter = `__NANO_CWD_${Date.now()}__`;
 
-    // Construct command to print PWD after execution, regardless of success/failure
-    // We use ; to ensure PWD is printed even if command fails
-    const wrappedCommand = `${command}; echo "${delimiter}$PWD"`;
+    // Construct command to print PWD and exit code after execution
+    // Use { } to group commands in current shell, ensuring state changes (cd) persist
+    // Syntax: { command; }; exit_code=$?; ...
+    // Note: spaces and semicolon required for { }
+    // But we need to handle potential syntax errors in command too.
+    // If command ends with ";", we might get "; ;".
+    // Safer to wrap: { eval "command"; } ... but quoting is hard.
+
+    // Simple approach: try to use { } group
+    // But ensure `command` doesn't break syntax.
+    // If we assume `command` is a valid shell string:
+    const wrappedCommand = `{ ${command}; }; __EXIT_CODE__=$?; echo "${delimiter}$PWD"; exit $__EXIT_CODE__`;
 
     try {
-        const { stdout, stderr, exitCode } = await execa(wrappedCommand, {
-            cwd: this.currentCwd,
-            shell: true, // Use default shell
-            timeout,
-            reject: false,
-            env: this.env
-        });
+      const { stdout, stderr, exitCode } = await execa(wrappedCommand, {
+        cwd: this.currentCwd,
+        shell: true, // Use default shell
+        timeout,
+        reject: false,
+        env: this.env,
+      });
 
-        let output = stdout;
+      let output = stdout;
 
-        // Extract new CWD
-        if (output.includes(delimiter)) {
-            const parts = output.split(delimiter);
-            const newCwd = parts.pop()?.trim();
-            output = parts.join(delimiter); // Restore original output minus the CWD part
+      // Extract new CWD
+      if (output.includes(delimiter)) {
+        const parts = output.split(delimiter);
+        const newCwd = parts.pop()?.trim();
+        output = parts.join(delimiter); // Restore original output minus the CWD part
 
-            // Update CWD if it exists
-            if (newCwd && await fs.pathExists(newCwd)) {
-                this.currentCwd = newCwd;
-            }
+        // Update CWD if it exists
+        if (newCwd && (await fs.pathExists(newCwd))) {
+          this.currentCwd = newCwd;
         }
+      }
 
-        // Remove trailing newline if it looks like just a newline was left
-        if (output.endsWith('\n')) {
-             // We don't want to aggressively trim real output, but echo adds a newline.
-             // The simple split usually leaves the previous part intact.
-        }
+      // Remove trailing newline if it looks like just a newline was left
+      if (output.endsWith('\n')) {
+        // We don't want to aggressively trim real output, but echo adds a newline.
+        // The simple split usually leaves the previous part intact.
+      }
 
-        return {
-            code: exitCode ?? 1, // Fallback exitCode if undefined (e.g. signal killed)
-            stdout: output,
-            stderr: stderr
-        };
+      return {
+        code: exitCode ?? 1, // Fallback exitCode if undefined (e.g. signal killed)
+        stdout: output,
+        stderr: stderr,
+      };
     } catch (error: any) {
-        return {
-            code: 1,
-            stdout: '',
-            stderr: error.message
-        };
+      return {
+        code: 1,
+        stdout: '',
+        stderr: error.message,
+      };
     }
   }
 
@@ -88,9 +100,9 @@ export class ShellSession {
       'rm -fr /',
       ':(){:|:&};:', // fork bomb
       '> /dev/sda',
-      'mkfs'
+      'mkfs',
     ];
 
-    return dangerousPatterns.some(p => command.includes(p));
+    return dangerousPatterns.some((p) => command.includes(p));
   }
 }

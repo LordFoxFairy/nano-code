@@ -1,6 +1,5 @@
-// src/cli/commands.ts
-import { Session } from './session';
 import chalk from 'chalk';
+import { Session } from './session.js';
 
 export interface CommandResult {
   success: boolean;
@@ -8,9 +7,12 @@ export interface CommandResult {
 }
 
 export class CommandHandler {
-  constructor(private _agent: any, private session: Session) {
-      // Suppress unused error for now, will be used later
-      void this._agent;
+  constructor(
+    private _agent: any,
+    private session: Session,
+  ) {
+    // Suppress unused error for now, will be used later
+    void this._agent;
   }
 
   async handle(input: string): Promise<CommandResult> {
