@@ -5,8 +5,6 @@
  * - Shell commands: !command or !`command`
  * - Skill invocation: /skillName [args]
  * - File references: @path/to/file
- *
- * Design aligned with Claude Code conventions.
  */
 
 import type { CommandInstruction, FileReference, PreprocessingResult } from '../../types';

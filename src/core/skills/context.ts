@@ -4,7 +4,7 @@
  * Runtime management of Skills for injection into System Prompt.
  * Supports L1 (metadata only) and L2 (full content) injection modes.
  *
- * Design aligned with Claude Code's progressive disclosure pattern.
+ * Implements progressive disclosure pattern with L1/L2 injection levels.
  */
 
 import type { Skill, SkillsContextConfig } from '../../types';

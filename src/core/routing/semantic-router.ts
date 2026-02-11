@@ -4,7 +4,7 @@
  * LLM-based intent recognition for auto skill activation.
  * Analyzes user input and matches against skill descriptions.
  *
- * Design aligned with Claude Code's semantic matching mechanism:
+ * Features:
  * - Description-driven matching ("This skill should be used when...")
  * - Respects disable-model-invocation flag
  * - Pluggable LLM provider interface
