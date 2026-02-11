@@ -43,7 +43,7 @@ tmp/
 tests
 
 docs
-
 CLAUDE.md
-
-.agents/skills/TODO.md
+.agents
+.agents/config.json
+!.agents/config.example.json

@@ -1,15 +1,14 @@
-/**
- * NanoCode - Open-source, local-first AI coding agent framework
- */
+// src/index.ts is the main entry point to run CLI
+import { Command } from 'commander';
 
-// Phase 1.0 - Skill Discovery
-export { SkillLoader, SkillsContext, PromptInjector } from './core/skills/index.js';
-export { parseFrontmatter, hasFrontmatter } from './core/utils/index.js';
+const program = new Command();
 
-// Phase 1.1 - Preprocessing & Routing
-export { Preprocessor, SemanticRouter } from './core/routing/index.js';
+program
+  .name('nanocode')
+  .description('AI Coding Agent')
+  .version('0.1.0')
+  .action(() => {
+    import('./cli/index').then(({ main }) => main());
+  });
 
-// Phase 2 - Hook System
-export { HookMatcher, HookExecutor, HookRegistry } from './core/hooks/index.js';
-
-export type * from './types/index.js';
+program.parse(process.argv);

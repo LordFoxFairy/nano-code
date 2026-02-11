@@ -1,0 +1,159 @@
+// src/cli/repl.ts
+import readline from 'readline';
+import chalk from 'chalk';
+import { Session } from './session';
+import { CommandHandler } from './commands';
+import { StreamingRenderer } from './renderer';
+// import { Agent } from 'deepagents';
+
+interface AgentStreamOptions {
+    configurable?: {
+        thread_id?: string;
+    };
+    signal?: AbortSignal;
+}
+
+interface AgentInput {
+    messages: { role: string; content: string }[];
+}
+
+interface AgentChunk {
+    content?: string;
+    tool_calls?: { name: string; args: any }[];
+}
+
+interface Agent {
+    stream(input: AgentInput, options?: AgentStreamOptions): Promise<AsyncIterable<AgentChunk>> | AsyncIterable<AgentChunk>;
+}
+
+export class REPL {
+    private rl: readline.Interface;
+    private commandHandler: CommandHandler;
+    private renderer: StreamingRenderer;
+    private isStreaming: boolean = false;
+    private abortController: AbortController | null = null;
+
+    constructor(private agent: Agent, private session: Session) {
+        this.rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            prompt: chalk.blue('> ')
+        });
+
+        this.commandHandler = new CommandHandler(agent, session);
+        this.renderer = new StreamingRenderer(process.stdout);
+
+        this.setupSignalHandlers();
+    }
+
+    async start() {
+        console.log(chalk.bold('Welcome to NanoCode'));
+        console.log(chalk.dim('Type /help for available commands\n'));
+
+        this.rl.prompt();
+
+        for await (const line of this.rl) {
+            const input = line.trim();
+
+            if (!input) {
+                this.rl.prompt();
+                continue;
+            }
+
+            try {
+                if (this.isSlashCommand(input)) {
+                    await this.handleSlashCommand(input);
+                } else {
+                    await this.handleNormalInput(input);
+                }
+            } catch (error: any) {
+                this.renderer.render({ type: 'error', content: error.message });
+            }
+
+            this.rl.prompt();
+        }
+    }
+
+    isSlashCommand(input: string): boolean {
+        return input.startsWith('/');
+    }
+
+    private async handleSlashCommand(input: string) {
+        const result = await this.commandHandler.handle(input);
+        if (result.success) {
+            console.log(result.output);
+        } else {
+            console.log(chalk.red(result.output));
+        }
+    }
+
+    private async handleNormalInput(input: string) {
+        this.isStreaming = true;
+        this.abortController = new AbortController();
+
+        try {
+            this.session.addMessage({ role: 'user', content: input });
+
+            // Create a custom stream from the agent
+            // This assumes agent.stream returns an async iterable of some chunks
+            // We need to adapt deepagents stream format to our renderer format
+
+            const stream = await this.agent.stream(
+                { messages: [{ role: 'user', content: input }] },
+                {
+                    configurable: { thread_id: this.session.threadId },
+                    signal: this.abortController.signal
+                }
+            );
+
+            let fullResponse = '';
+
+            for await (const chunk of stream) {
+                // Here we need to map deepagents/langchain chunks to our RenderAction
+                // Since I don't see the exact chunk structure from deepagents stream yet,
+                // I'll assume standard langchain chunks or deepagents custom chunks.
+
+                // Placeholder mapping logic:
+                if (chunk.content) {
+                    this.renderer.render({ type: 'text', content: chunk.content });
+                    fullResponse += chunk.content;
+                }
+
+                // Logic for tool calls would go here based on chunk structure
+                if (chunk.tool_calls) {
+                     for (const toolCall of chunk.tool_calls) {
+                         this.renderer.render({
+                             type: 'tool_call_start',
+                             toolName: toolCall.name,
+                             args: toolCall.args
+                         });
+                     }
+                }
+            }
+
+            console.log('\n'); // Newline after stream
+            this.session.addMessage({ role: 'assistant', content: fullResponse });
+
+        } catch (error: any) {
+            if (error.name === 'AbortError') {
+                 console.log(chalk.yellow('\nRequest aborted.'));
+            } else {
+                 throw error;
+            }
+        } finally {
+            this.isStreaming = false;
+            this.abortController = null;
+        }
+    }
+
+    private setupSignalHandlers() {
+        process.on('SIGINT', () => {
+            if (this.isStreaming && this.abortController) {
+                this.abortController.abort();
+            } else {
+                console.log('\nPress Ctrl+C again to exit.');
+                process.exit(0);
+            }
+        });
+    }
+}
