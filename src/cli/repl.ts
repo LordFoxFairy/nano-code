@@ -6,26 +6,6 @@ import { CommandHandler } from './commands';
 import { StreamingRenderer } from './renderer';
 // import { Agent } from 'deepagents';
 
-interface AgentStreamOptions {
-    configurable?: {
-        thread_id?: string;
-    };
-    signal?: AbortSignal;
-}
-
-interface AgentInput {
-    messages: { role: string; content: string }[];
-}
-
-interface AgentChunk {
-    content?: string;
-    tool_calls?: { name: string; args: any }[];
-}
-
-interface Agent {
-    stream(input: AgentInput, options?: AgentStreamOptions): Promise<AsyncIterable<AgentChunk>> | AsyncIterable<AgentChunk>;
-}
-
 export class REPL {
     private rl: readline.Interface;
     private commandHandler: CommandHandler;
@@ -33,7 +13,9 @@ export class REPL {
     private isStreaming: boolean = false;
     private abortController: AbortController | null = null;
 
-    constructor(private agent: Agent, private session: Session) {
+    // Use any to avoid "excessively deep" type instantiation with LangGraph types
+    // The actual interface is compatible with stream()
+    constructor(private agent: any, private session: Session) {
         this.rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout,

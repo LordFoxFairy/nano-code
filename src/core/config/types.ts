@@ -70,6 +70,9 @@ export interface InterruptConfig {
 
   /** Interrupt before executing commands */
   execute?: boolean;
+
+  /** Allow other tool interruptions */
+  [key: string]: boolean | undefined;
 }
 
 /**
