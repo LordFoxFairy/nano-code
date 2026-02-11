@@ -83,7 +83,6 @@ function parseSimpleYaml(yaml: string): Record<string, unknown> {
       }
     }
 
-    // Parse key-value pair
     const colonIndex = line.indexOf(':');
     if (colonIndex === -1) continue;
 

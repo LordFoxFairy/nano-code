@@ -174,7 +174,7 @@ export interface SkillMatch {
 
 /**
  * LLM Provider interface for semantic routing
- * This allows pluggable LLM backends (Claude, OpenAI, local models, etc.)
+ * Supports pluggable LLM backends (commercial APIs, open-source models, local inference, etc.)
  */
 export interface LLMProvider {
   /**
