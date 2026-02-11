@@ -1,14 +1,7 @@
-// src/index.ts is the main entry point to run CLI
-import { Command } from 'commander';
+#!/usr/bin/env node
 
-const program = new Command();
-
-program
-  .name('minicode')
-  .description('AI Coding Agent')
-  .version('0.1.0')
-  .action(() => {
-    import('./cli/index').then(({ main }) => main());
-  });
-
-program.parse(process.argv);
+// Delegate completely to the CLI module
+import('./cli/index.js').then(({ main }) => main()).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
