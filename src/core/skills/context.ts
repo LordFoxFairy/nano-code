@@ -7,8 +7,8 @@
  * Design aligned with Claude Code's progressive disclosure pattern.
  */
 
-import type { Skill, SkillsContextConfig } from '../types';
-import { SkillLoader } from './skill-loader.js';
+import type { Skill, SkillsContextConfig } from '../../types';
+import { SkillLoader } from './loader.js';
 import { PromptInjector } from './prompt-injector.js';
 
 export class SkillsContext {

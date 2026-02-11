@@ -9,7 +9,7 @@
  * Design aligned with Claude Code conventions.
  */
 
-import type { CommandInstruction, FileReference, PreprocessingResult } from '../types';
+import type { CommandInstruction, FileReference, PreprocessingResult } from '../../types';
 
 export class Preprocessor {
   /**

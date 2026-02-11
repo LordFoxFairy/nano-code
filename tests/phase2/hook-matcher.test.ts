@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { HookMatcher } from '../../src/core/hooks/matcher.js';
+import { HookMatcher } from '../../src/core/hooks/index.js';
 
 describe('HookMatcher', () => {
   const matcher = new HookMatcher();

@@ -10,7 +10,7 @@
  * - Pluggable LLM provider interface
  */
 
-import type { LLMProvider, RouterDecision, SemanticRouterConfig, Skill, SkillMatch } from '../types';
+import type { LLMProvider, RouterDecision, SemanticRouterConfig, Skill, SkillMatch } from '../../types';
 
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.7;
 

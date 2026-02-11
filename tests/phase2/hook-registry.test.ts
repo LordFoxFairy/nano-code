@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { HookRegistry } from '../../src/core/hooks/registry.js';
+import { HookRegistry } from '../../src/core/hooks/index.js';
 import type { HooksJson, HookEventType } from '../../src/types';
 
 describe('HookRegistry', () => {

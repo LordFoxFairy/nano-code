@@ -13,7 +13,7 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { basename, join } from 'path';
 
-import { parseFrontmatter } from './frontmatter.js';
+import { parseFrontmatter } from '../utils/frontmatter.js';
 import type {
   Agent,
   AgentFrontmatter,
@@ -23,7 +23,7 @@ import type {
   Skill,
   SkillFrontmatter,
   SkillLoaderResult,
-} from '../types';
+} from '../../types';
 
 export class SkillLoader {
   private readonly skillsPath: string;

@@ -3,14 +3,11 @@
  */
 
 // Phase 1.0 - Skill Discovery
-export { SkillLoader } from './core/skill-loader.js';
-export { PromptInjector } from './core/prompt-injector.js';
-export { parseFrontmatter, hasFrontmatter } from './core/frontmatter.js';
+export { SkillLoader, SkillsContext, PromptInjector } from './core/skills/index.js';
+export { parseFrontmatter, hasFrontmatter } from './core/utils/index.js';
 
 // Phase 1.1 - Preprocessing & Routing
-export { Preprocessor } from './core/preprocessor.js';
-export { SkillsContext } from './core/skills-context.js';
-export { SemanticRouter } from './core/semantic-router.js';
+export { Preprocessor, SemanticRouter } from './core/routing/index.js';
 
 // Phase 2 - Hook System
 export { HookMatcher, HookExecutor, HookRegistry } from './core/hooks/index.js';

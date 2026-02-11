@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { HookExecutor } from '../../src/core/hooks/executor.js';
+import { HookExecutor } from '../../src/core/hooks/index.js';
 import type { HookConfig, HookExecutionInput } from '../../src/types';
 
 describe('HookExecutor', () => {
