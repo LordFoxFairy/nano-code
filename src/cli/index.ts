@@ -65,6 +65,9 @@ export async function main() {
 
     // 4. Start REPL
     const repl = new REPL(agent, session!);
+
+    // Handle initial input if passed via stdin or args?
+    // For now, just start interactively
     await repl.start();
   } catch (error: any) {
     console.error(chalk.red('Fatal Error:'), error.message);

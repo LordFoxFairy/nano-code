@@ -11,6 +11,7 @@ export class REPL {
   private renderer: StreamingRenderer;
   private isStreaming: boolean = false;
   private abortController: AbortController | null = null;
+  private history: string[] = [];
 
   // Use any to avoid "excessively deep" type instantiation with LangGraph types
   // The actual interface is compatible with stream()
@@ -21,7 +22,7 @@ export class REPL {
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: chalk.blue('> '),
+      prompt: this.getPrompt(),
     });
 
     this.commandHandler = new CommandHandler(agent, session);
@@ -30,9 +31,16 @@ export class REPL {
     this.setupSignalHandlers();
   }
 
+  private getPrompt(): string {
+     const mode = this.session?.mode || 'sonnet';
+     return `${chalk.blue('╭─')} ${chalk.bold('NanoCode')} ${chalk.dim(`(${mode})`)}
+${chalk.blue('╰─>')} `;
+  }
+
   async start() {
-    console.log(chalk.bold('Welcome to NanoCode'));
-    console.log(chalk.dim('Type /help for available commands\n'));
+    this.updatePrompt();
+    console.log(chalk.bold('\nWelcome to NanoCode'));
+    console.log(chalk.dim('Type /help for available commands or start typing to chat.\n'));
 
     this.rl.prompt();
 
@@ -44,6 +52,14 @@ export class REPL {
         continue;
       }
 
+      // Basic multi-line support (very simple for now)
+      if (input.endsWith('\\')) {
+         // This would require more complex readline handling to support continuation
+         // For now, let's just process single inputs or paste
+      }
+
+      this.history.push(input);
+
       try {
         if (this.isSlashCommand(input)) {
           await this.handleSlashCommand(input);
@@ -54,8 +70,13 @@ export class REPL {
         this.renderer.render({ type: 'error', content: error.message });
       }
 
+      this.updatePrompt();
       this.rl.prompt();
     }
+  }
+
+  private updatePrompt() {
+    this.rl.setPrompt(this.getPrompt());
   }
 
   isSlashCommand(input: string): boolean {
@@ -66,6 +87,8 @@ export class REPL {
     const result = await this.commandHandler.handle(input);
     if (result.success) {
       console.log(result.output);
+      // Reload prompt if needed (e.g. mode change)
+      this.updatePrompt();
     } else {
       console.log(chalk.red(result.output));
     }
@@ -160,6 +183,12 @@ export class REPL {
       }
 
       console.log('\n'); // Newline after stream
+      // Render full response nicely if it was text
+      if (fullResponse) {
+         // Optionally re-render nicely if needed, but we already streamed it.
+         // Maybe just clear previous lines? No, that's risky.
+         // Let's use the renderer to print a nice divider or something
+      }
       this.session.addMessage({ role: 'assistant', content: fullResponse });
     } catch (error: any) {
       if (error.name === 'AbortError') {

@@ -47,6 +47,8 @@ export class CommandHandler {
       '  /model [name]   Switch model (opus, sonnet, haiku)',
       '  /clear          Clear conversation context (starts new thread)',
       '  /exit           Exit NanoCode',
+      '  /bug            Report a bug (not implemented)',
+      '  /cost           Show current session cost (not implemented)',
     ].join('\n');
 
     return { success: true, output: helpText };
