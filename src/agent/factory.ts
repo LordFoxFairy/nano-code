@@ -129,7 +129,18 @@ export class AgentFactory {
       if (validSkillsDirs.length > 0) {
         // Load subagents from all skill directories
         const loadedSubagents = await Promise.all(validSkillsDirs.map((dir) => loadSubagents(dir)));
-        subagents = loadedSubagents.flat();
+        // Transform NanoCode SubAgent format to deepagents SubAgent format
+        // deepagents expects tools?: StructuredTool[] but our loader outputs tools: string[]
+        // Since we can't resolve string names to tool instances at this layer,
+        // we omit the tools field and let subagents use defaultTools from deepagents
+        subagents = loadedSubagents.flat().map((agent) => ({
+          name: agent.name,
+          description: agent.description,
+          systemPrompt: agent.systemPrompt,
+          model: agent.model,
+          // Don't pass tools - deepagents expects StructuredTool[] not string[]
+          // Subagents will inherit defaultTools from deepagents
+        }));
       }
     } catch (error) {
       console.warn('Failed to load subagents:', error);
