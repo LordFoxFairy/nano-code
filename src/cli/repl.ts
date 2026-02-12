@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { Session } from './session.js';
 import { CommandHandler } from './commands.js';
 import { StreamingRenderer } from './renderer.js';
+import { parseMessage } from './message-utils.js';
 
 export class REPL {
   private rl: readline.Interface;
@@ -100,44 +101,23 @@ export class REPL {
 
           // Process new messages we haven't seen yet
           for (const msg of messages) {
+            const parsedMsg = parseMessage(msg);
+            const { role, content, toolCalls, id: msgId, name, isError } = parsedMsg;
 
-            // Normalize message data
-            const role = msg.role || (msg.id?.includes('AIMessage') ? 'assistant' : (msg.id?.includes('HumanMessage') ? 'user' : (msg.id?.includes('ToolMessage') ? 'tool' : 'unknown')));
-            const content = msg.content !== undefined ? msg.content : (msg.kwargs?.content);
-            const toolCalls = msg.tool_calls || msg.kwargs?.tool_calls;
-            const name = msg.name || msg.kwargs?.name;
-            const isError = msg.is_error || msg.kwargs?.is_error;
-
-            // Generate a unique ID for the message
-            // Use msg.id if it's a string, or construct one
-            const msgId = typeof msg.id === 'string'
-              ? msg.id
-              : (msg.id && Array.isArray(msg.id) ? msg.id.join('_') : `${role}-${typeof content === 'string' ? content.substring(0, 20) : 'obj'}`);
+            // console.log(`Debug msg: role=${role}, id=${msgId}, content=${content?.toString().substring(0, 20)}, processed=${processedMessages.has(msgId)}`);
 
             if (!processedMessages.has(msgId) && role === 'assistant') {
               processedMessages.add(msgId);
 
+              // Check if we already rendered this content (simple dedup for streaming hiccups)
+              if (processedMessages.has(`${msgId}_rendered`)) {
+                 continue;
+              }
+              processedMessages.add(`${msgId}_rendered`);
+
               if (content) {
-                // If it's a string content
-                if (typeof content === 'string') {
                   this.renderer.render({ type: 'text', content: content });
                   fullResponse += content;
-                } else if (Array.isArray(content)) {
-                   // Handle array content (typically text + tool_use)
-                   for (const part of content) {
-                     if (part.type === 'text') {
-                       this.renderer.render({ type: 'text', content: part.text });
-                       fullResponse += part.text;
-                     } else if (part.type === 'tool_use') {
-                        this.renderer.render({
-                          type: 'tool_call_start',
-                          toolName: part.name,
-                          args: part.input,
-                        });
-                        // We might want to show tool results too if they are in the message history
-                     }
-                   }
-                }
               }
 
               if (toolCalls && toolCalls.length > 0) {
