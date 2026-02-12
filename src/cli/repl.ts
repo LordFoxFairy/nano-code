@@ -100,20 +100,31 @@ export class REPL {
 
           // Process new messages we haven't seen yet
           for (const msg of messages) {
-            // Simple deduplication - in a real app might need better logic
-            const msgId = msg.id || `${msg.role}-${msg.content?.substring(0, 20)}`;
 
-            if (!processedMessages.has(msgId) && msg.role === 'assistant') {
+            // Normalize message data
+            const role = msg.role || (msg.id?.includes('AIMessage') ? 'assistant' : (msg.id?.includes('HumanMessage') ? 'user' : (msg.id?.includes('ToolMessage') ? 'tool' : 'unknown')));
+            const content = msg.content !== undefined ? msg.content : (msg.kwargs?.content);
+            const toolCalls = msg.tool_calls || msg.kwargs?.tool_calls;
+            const name = msg.name || msg.kwargs?.name;
+            const isError = msg.is_error || msg.kwargs?.is_error;
+
+            // Generate a unique ID for the message
+            // Use msg.id if it's a string, or construct one
+            const msgId = typeof msg.id === 'string'
+              ? msg.id
+              : (msg.id && Array.isArray(msg.id) ? msg.id.join('_') : `${role}-${typeof content === 'string' ? content.substring(0, 20) : 'obj'}`);
+
+            if (!processedMessages.has(msgId) && role === 'assistant') {
               processedMessages.add(msgId);
 
-              if (msg.content) {
+              if (content) {
                 // If it's a string content
-                if (typeof msg.content === 'string') {
-                  this.renderer.render({ type: 'text', content: msg.content });
-                  fullResponse += msg.content;
-                } else if (Array.isArray(msg.content)) {
+                if (typeof content === 'string') {
+                  this.renderer.render({ type: 'text', content: content });
+                  fullResponse += content;
+                } else if (Array.isArray(content)) {
                    // Handle array content (typically text + tool_use)
-                   for (const part of msg.content) {
+                   for (const part of content) {
                      if (part.type === 'text') {
                        this.renderer.render({ type: 'text', content: part.text });
                        fullResponse += part.text;
@@ -129,13 +140,8 @@ export class REPL {
                 }
               }
 
-              // Handle tool_use in array content
-              // if (Array.isArray(msg.content)) {
-              //   // Already handled in the loop above
-              // }
-
-              if (msg.tool_calls && msg.tool_calls.length > 0) {
-                 for (const toolCall of msg.tool_calls) {
+              if (toolCalls && toolCalls.length > 0) {
+                 for (const toolCall of toolCalls) {
                     this.renderer.render({
                       type: 'tool_call_start',
                       toolName: toolCall.name,
@@ -146,13 +152,13 @@ export class REPL {
             }
 
             // Check for tool output messages to render results
-            if (!processedMessages.has(msgId) && msg.role === 'tool') {
+            if (!processedMessages.has(msgId) && role === 'tool') {
                processedMessages.add(msgId);
                this.renderer.render({
                  type: 'tool_result',
-                 toolName: msg.name,
-                 result: msg.content,
-                 success: !msg.is_error
+                 toolName: name,
+                 result: content,
+                 success: !isError
                });
             }
           }
