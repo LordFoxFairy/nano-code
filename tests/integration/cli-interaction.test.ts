@@ -1,31 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CommandHandler } from '../../src/cli/commands.js';
-import { Session } from '../../src/cli/session.js';
+import type { Session } from '../../src/cli/session.js';
 
 // Test the CommandHandler directly since it's the core logic
 // REPL integration is complex due to readline and process.stdin mocks
 
 describe('CLI Integration', () => {
-  let mockAgent: any;
   let mockSession: any;
   let commandHandler: CommandHandler;
-  let consoleLogSpy: any;
 
   beforeEach(() => {
-    mockAgent = {
-      stream: vi.fn(),
-    };
-
     mockSession = {
       threadId: 'test-thread',
       mode: 'sonnet',
       addMessage: vi.fn(),
       setMode: vi.fn(),
       clear: vi.fn(),
-    } as any;
+    };
 
-    commandHandler = new CommandHandler(mockAgent, mockSession);
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    commandHandler = new CommandHandler(mockSession as Session);
   });
 
   afterEach(() => {

@@ -25,15 +25,15 @@ export class REPL {
       prompt: this.getPrompt(),
     });
 
-    this.commandHandler = new CommandHandler(agent, session);
+    this.commandHandler = new CommandHandler(session);
     this.renderer = new StreamingRenderer(process.stdout);
 
     this.setupSignalHandlers();
   }
 
   private getPrompt(): string {
-     const mode = this.session?.mode || 'sonnet';
-     return `${chalk.blue('╭─')} ${chalk.bold('NanoCode')} ${chalk.dim(`(${mode})`)}
+    const mode = this.session.mode || 'sonnet';
+    return `${chalk.blue('╭─')} ${chalk.bold('NanoCode')} ${chalk.dim(`(${mode})`)}
 ${chalk.blue('╰─>')} `;
   }
 
@@ -52,11 +52,8 @@ ${chalk.blue('╰─>')} `;
         continue;
       }
 
-      // Basic multi-line support (very simple for now)
-      if (input.endsWith('\\')) {
-         // This would require more complex readline handling to support continuation
-         // For now, let's just process single inputs or paste
-      }
+      // Basic multi-line support could go here (e.g. checking for backslash)
+      // For now, we process each line as a complete input
 
       this.history.push(input);
 
@@ -87,8 +84,18 @@ ${chalk.blue('╰─>')} `;
     const result = await this.commandHandler.handle(input);
     if (result.success) {
       console.log(result.output);
-      // Reload prompt if needed (e.g. mode change)
-      this.updatePrompt();
+
+      // If this was a skill trigger, we need to send the context to the agent
+      // We essentially treat it as a user message but injected with skill context
+      if (result.skillContext) {
+        // Construct a message that tells the agent to use this skill
+        // We include the original command for context, but primarily the skill definition
+        const skillMessage = `User triggered skill command: ${input}\n\nSkill Context:\n${result.skillContext}`;
+        await this.handleNormalInput(skillMessage);
+      } else {
+        // Reload prompt if needed (e.g. mode change)
+        this.updatePrompt();
+      }
     } else {
       console.log(chalk.red(result.output));
     }
@@ -115,7 +122,7 @@ ${chalk.blue('╰─>')} `;
       );
 
       let fullResponse = '';
-      let processedMessages = new Set<string>();
+      const processedMessages = new Set<string>();
 
       for await (const chunk of stream) {
         // Handle LangGraph values stream (returns full state)
@@ -127,56 +134,59 @@ ${chalk.blue('╰─>')} `;
             const parsedMsg = parseMessage(msg);
             const { role, content, toolCalls, id: msgId, name, isError } = parsedMsg;
 
-            // console.log(`Debug msg: role=${role}, id=${msgId}, content=${content?.toString().substring(0, 20)}, processed=${processedMessages.has(msgId)}`);
+            // Optional debug log
+            // console.log(`Msg: ${role}, ${msgId}`);
 
             if (!processedMessages.has(msgId) && role === 'assistant') {
               processedMessages.add(msgId);
 
-              // Check if we already rendered this content (simple dedup for streaming hiccups)
+              // Check if we already rendered this content
               if (processedMessages.has(`${msgId}_rendered`)) {
-                 continue;
+                continue;
               }
               processedMessages.add(`${msgId}_rendered`);
 
               if (content) {
-                  this.renderer.render({ type: 'text', content: content });
-                  fullResponse += content;
+                this.renderer.render({ type: 'text', content: content });
+                fullResponse += content;
               }
 
               if (toolCalls && toolCalls.length > 0) {
-                 for (const toolCall of toolCalls) {
-                    this.renderer.render({
-                      type: 'tool_call_start',
-                      toolName: toolCall.name,
-                      args: toolCall.args,
-                    });
-                 }
+                for (const toolCall of toolCalls) {
+                  this.renderer.render({
+                    type: 'tool_call_start',
+                    toolName: toolCall.name ?? 'unknown_tool',
+                    args: toolCall.args ?? {},
+                  });
+                }
               }
             }
 
             // Check for tool output messages to render results
             if (!processedMessages.has(msgId) && role === 'tool') {
-               processedMessages.add(msgId);
-               this.renderer.render({
-                 type: 'tool_result',
-                 toolName: name,
-                 result: content,
-                 success: !isError
-               });
+              processedMessages.add(msgId);
+              this.renderer.render({
+                type: 'tool_result',
+                toolName: name ?? 'unknown',
+                result: content,
+                success: !isError,
+              });
             }
           }
-          continue;
         }
 
-        // Original logic for direct chunks if not using 'values' mode...
-
-        // Logic for tool calls would go here based on chunk structure
-        if (chunk.tool_calls) {
-          for (const toolCall of chunk.tool_calls) {
+        // Handle direct chunks if tool_calls not in messages (for streaming modes other than 'values')
+        if (
+          chunk &&
+          typeof chunk === 'object' &&
+          'tool_calls' in chunk &&
+          Array.isArray((chunk as any).tool_calls)
+        ) {
+          for (const toolCall of (chunk as any).tool_calls) {
             this.renderer.render({
               type: 'tool_call_start',
-              toolName: toolCall.name,
-              args: toolCall.args,
+              toolName: toolCall.name ?? 'unknown',
+              args: toolCall.args ?? {},
             });
           }
         }
@@ -185,9 +195,9 @@ ${chalk.blue('╰─>')} `;
       console.log('\n'); // Newline after stream
       // Render full response nicely if it was text
       if (fullResponse) {
-         // Optionally re-render nicely if needed, but we already streamed it.
-         // Maybe just clear previous lines? No, that's risky.
-         // Let's use the renderer to print a nice divider or something
+        // Optionally re-render nicely if needed, but we already streamed it.
+        // Maybe just clear previous lines? No, that's risky.
+        // Let's use the renderer to print a nice divider or something
       }
       this.session.addMessage({ role: 'assistant', content: fullResponse });
     } catch (error: any) {

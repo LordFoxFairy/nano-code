@@ -113,7 +113,7 @@ export function getToolCalls(msg: any): any[] {
       .map((part: any) => ({
         name: part.name,
         args: part.input || part.args,
-        id: part.id
+        id: part.id,
       }));
 
     if (toolUses.length > 0) return toolUses;
@@ -125,7 +125,12 @@ export function getToolCalls(msg: any): any[] {
 /**
  * Generates a unique ID for a message
  */
-export function getMessageId(msg: any, role: string, content: string, toolCalls: any[] = []): string {
+export function getMessageId(
+  msg: any,
+  role: string,
+  content: string,
+  toolCalls: any[] = [],
+): string {
   if (typeof msg.id === 'string') {
     return msg.id;
   }
@@ -135,10 +140,10 @@ export function getMessageId(msg: any, role: string, content: string, toolCalls:
   }
 
   if (msg.id && Array.isArray(msg.id)) {
-     // Include content hash or length to allow multiple messages of same type but different content
-     const contentSuffix = content ? content.substring(0, 10).replace(/\s/g, '') : 'empty';
-     const toolSuffix = toolCalls ? toolCalls.length : 0;
-     return `${msg.id.join('_')}_${contentSuffix}_${toolSuffix}`;
+    // Include content hash or length to allow multiple messages of same type but different content
+    const contentSuffix = content ? content.substring(0, 10).replace(/\s/g, '') : 'empty';
+    const toolSuffix = toolCalls ? toolCalls.length : 0;
+    return `${msg.id.join('_')}_${contentSuffix}_${toolSuffix}`;
   }
 
   // Fallback ID generation
@@ -173,6 +178,6 @@ export function parseMessage(msg: any): ParsedMessage {
     toolCalls,
     id,
     name,
-    isError
+    isError,
   };
 }

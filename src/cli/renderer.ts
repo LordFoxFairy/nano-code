@@ -7,9 +7,9 @@ import boxen from 'boxen';
 
 // Configure marked for terminal output
 marked.setOptions({
-  // @ts-ignore - marked-terminal types are sometimes tricky
+  // @ts-expect-error - marked-terminal types are sometimes tricky
   renderer: new TerminalRenderer({
-    // @ts-ignore - marked-terminal seems to have issues with type definitions for code
+    // @ts-expect-error - marked-terminal seems to have issues with type definitions for code
     code: (code: any, lang: any) => {
       try {
         return highlight(code, { language: lang || 'plaintext', ignoreIllegals: true });
@@ -83,15 +83,15 @@ export class StreamingRenderer {
         this.spinner = ora({
           text: `${chalk.bold('Executing')} ${chalk.cyan(this.currentTool)}...`,
           spinner: 'dots',
-          color: 'cyan'
+          color: 'cyan',
         }).start();
 
         // If we have args, maybe show them nicely?
         if (action.args) {
-             const argsStr = JSON.stringify(action.args, null, 2);
-             if (argsStr.length < 100) {
-                 this.spinner.text += chalk.dim(` ${argsStr}`);
-             }
+          const argsStr = JSON.stringify(action.args, null, 2);
+          if (argsStr.length < 100) {
+            this.spinner.text += chalk.dim(` ${argsStr}`);
+          }
         }
         break;
 
@@ -123,23 +123,25 @@ export class StreamingRenderer {
           this.spinner.fail('Error occurred');
           this.spinner = null;
         }
-        console.log(boxen(chalk.red(action.content || 'Unknown error'), {
-          title: 'Error',
-          titleAlignment: 'left',
-          borderColor: 'red',
-          padding: 1,
-          margin: 1,
-          borderStyle: 'round'
-        }));
+        console.log(
+          boxen(chalk.red(action.content || 'Unknown error'), {
+            title: 'Error',
+            titleAlignment: 'left',
+            borderColor: 'red',
+            padding: 1,
+            margin: 1,
+            borderStyle: 'round',
+          }),
+        );
         break;
     }
   }
 
   // Method to render the final full message with Markdown support
   renderFinalMessage(content: string) {
-     // Use marked to render the full markdown content
-     const rendered = marked(content);
-     console.log('\n' + rendered);
+    // Use marked to render the full markdown content
+    const rendered = marked(content);
+    console.log('\n' + rendered);
   }
 
   private formatToolResult(result: string): string {
@@ -167,7 +169,7 @@ export class StreamingRenderer {
     return formatted;
   }
 
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private truncate(str: string, n: number) {
     if (str.length <= n) return str;
     return str.slice(0, n) + '... (truncated)';

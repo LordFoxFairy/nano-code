@@ -1,9 +1,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
+import React from 'react';
+import { render } from 'ink';
 import { loadConfig } from '../core/config/loader.js';
-import { createNanoCodeAgent } from '../agent/factory.js';
+import { AgentFactory } from '../agent/factory.js';
 import { Session } from './session.js';
-import { REPL } from './repl.js';
+import { App } from './ui/App.js';
 
 export async function main() {
   const program = new Command();
@@ -36,15 +38,12 @@ export async function main() {
       session = new Session();
     }
 
-    // Determine mode: CLI > Session > Config Default > Hardcoded fallback
+    // Determine mode
     let mode = session!.mode; // Default to session mode (which defaults to 'sonnet')
 
     if (options.mode) {
       mode = options.mode;
     } else if (config.settings?.defaultMode) {
-      // Only override if session is new or user didn't specify?
-      // Actually, if session is resumed, we stick to its mode unless CLI overrides.
-      // If session is new, we use config default.
       if (!options.resume && !options.mode) {
         mode = config.settings.defaultMode;
       }
@@ -53,22 +52,18 @@ export async function main() {
     // Update session mode
     session!.setMode(mode);
 
-    console.log(chalk.blue(`Starting NanoCode in ${mode} mode...`));
-
     // 3. Create Agent
-    const agent = await createNanoCodeAgent({
+    const factory = new AgentFactory({
       config,
-      mode,
+      mode: mode as any,
       cwd: process.cwd(),
       hitl: config.settings?.interruptOn ? true : true, // Default to true if not specified
     });
+    const agent = await factory.build();
 
-    // 4. Start REPL
-    const repl = new REPL(agent, session!);
-
-    // Handle initial input if passed via stdin or args?
-    // For now, just start interactively
-    await repl.start();
+    // 4. Start UI
+    const { waitUntilExit } = render(React.createElement(App, { agent, session }));
+    await waitUntilExit();
   } catch (error: any) {
     console.error(chalk.red('Fatal Error:'), error.message);
     process.exit(1);

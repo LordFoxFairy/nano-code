@@ -1,18 +1,79 @@
 import chalk from 'chalk';
-import { Session } from './session.js';
+import fs from 'fs-extra';
+import path from 'path';
+import type { Session } from './session.js';
 
 export interface CommandResult {
   success: boolean;
   output: string;
+  skillContext?: string;
+  skillName?: string;
+}
+
+interface SkillDefinition {
+  name: string;
+  commands: string[];
+  content: string;
+  description: string;
 }
 
 export class CommandHandler {
-  constructor(
-    private _agent: any,
-    private session: Session,
-  ) {
-    // Suppress unused error for now, will be used later
-    void this._agent;
+  private skills: Map<string, SkillDefinition> = new Map();
+  private commandToSkill: Map<string, SkillDefinition> = new Map();
+
+  constructor(private readonly session: Session) {
+    this.loadSkills();
+  }
+
+  private loadSkills() {
+    const skillsDir = path.join(process.cwd(), '.agents', 'skills');
+    if (!fs.existsSync(skillsDir)) return;
+
+    try {
+      const dirs = fs.readdirSync(skillsDir);
+      for (const dir of dirs) {
+        const skillFile = path.join(skillsDir, dir, 'SKILL.md');
+        if (fs.existsSync(skillFile)) {
+          const content = fs.readFileSync(skillFile, 'utf-8');
+          const matchName = content.match(/^name:\s*(.+)$/m);
+          const matchDesc = content.match(/^description:\s*(.+)$/m);
+
+          if (matchName && matchName[1]) {
+            const name = matchName[1].trim();
+            const description = matchDesc && matchDesc[1] ? matchDesc[1].trim() : '';
+
+            // Extract commands from headers like "### /command"
+            // Also include the skill name as a command
+            const commands = [name];
+            const headerMatches = content.matchAll(/###\s+\/([\w-]+)/g);
+            for (const match of headerMatches) {
+              const cmd = match[1];
+              if (cmd) {
+                commands.push(cmd);
+              }
+            }
+            // Unique commands
+            const uniqueCommands = [...new Set(commands)];
+
+            const skillDef = { name, commands: uniqueCommands, content, description };
+            this.skills.set(name, skillDef);
+
+            for (const cmd of uniqueCommands) {
+              this.commandToSkill.set(cmd, skillDef);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Silently fail if skills directory can't be read or processed
+      // console.error('Error loading skills:', error);
+    }
+  }
+
+  getSkillCommand(command: string): string | null {
+    const cleanCommand = command.startsWith('/') ? command.slice(1) : command;
+    const skill = this.commandToSkill.get(cleanCommand);
+    return skill ? skill.content : null;
   }
 
   async handle(input: string): Promise<CommandResult> {
@@ -27,7 +88,23 @@ export class CommandHandler {
         return this.handleClear();
       case '/exit':
         process.exit(0);
+
       default:
+        // Check for skill command
+        const skillContent = this.getSkillCommand(command);
+        if (skillContent) {
+          // We found a matching skill
+          const cleanCommand = command.startsWith('/') ? command.slice(1) : command;
+          const skillDef = this.commandToSkill.get(cleanCommand);
+
+          return {
+            success: true,
+            output: `Activated skill: ${skillDef?.name}`,
+            skillContext: skillContent,
+            skillName: skillDef?.name,
+          };
+        }
+
         return { success: false, output: `Unknown command: ${command}` };
     }
   }
@@ -41,7 +118,7 @@ export class CommandHandler {
   }
 
   private handleHelp(): CommandResult {
-    const helpText = [
+    const mainHelp = [
       chalk.bold('Available Commands:'),
       '  /help           Show this help message',
       '  /model [name]   Switch model (opus, sonnet, haiku)',
@@ -49,9 +126,19 @@ export class CommandHandler {
       '  /exit           Exit NanoCode',
       '  /bug            Report a bug (not implemented)',
       '  /cost           Show current session cost (not implemented)',
-    ].join('\n');
+    ];
 
-    return { success: true, output: helpText };
+    if (this.skills.size > 0) {
+      mainHelp.push('');
+      mainHelp.push(chalk.bold('Skill Commands:'));
+      for (const [name, skill] of this.skills.entries()) {
+        const uniqueCmds = skill.commands.filter((c) => c !== name).map((c) => `/${c}`);
+        const cmdsStr = uniqueCmds.length > 0 ? ` (${uniqueCmds.join(', ')})` : '';
+        mainHelp.push(`  /${name}${cmdsStr}`);
+      }
+    }
+
+    return { success: true, output: mainHelp.join('\n') };
   }
 
   private handleModel(args: string[]): CommandResult {
