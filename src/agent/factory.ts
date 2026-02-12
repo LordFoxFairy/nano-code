@@ -21,6 +21,11 @@ import { loadSubagents } from '../core/agent/loader.js';
 
 /**
  * Default tools requiring HITL approval
+ *
+ * Security Note: This config provides security enforcement by requiring
+ * human approval before file writes and command execution. This replaces
+ * the PreToolUse hook pattern from Claude Code with deepagents' native
+ * interruptOn mechanism.
  */
 const DEFAULT_INTERRUPT_CONFIG = {
   write_file: true,

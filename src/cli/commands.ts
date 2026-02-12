@@ -15,6 +15,7 @@ interface SkillDefinition {
   commands: string[];
   content: string;
   description: string;
+  commandContents: Map<string, string>; // Maps command name to its specific content
 }
 
 export class CommandHandler {
@@ -41,6 +42,7 @@ export class CommandHandler {
           if (matchName && matchName[1]) {
             const name = matchName[1].trim();
             const description = matchDesc && matchDesc[1] ? matchDesc[1].trim() : '';
+            const commandContents = new Map<string, string>();
 
             // Extract commands from headers like "### /command"
             // Also include the skill name as a command
@@ -52,10 +54,24 @@ export class CommandHandler {
                 commands.push(cmd);
               }
             }
+
+            // Load commands from commands/*.md directory
+            const commandsDir = path.join(skillsDir, dir, 'commands');
+            if (fs.existsSync(commandsDir)) {
+              const cmdFiles = fs.readdirSync(commandsDir).filter((f) => f.endsWith('.md'));
+              for (const cmdFile of cmdFiles) {
+                const cmdName = cmdFile.replace('.md', '');
+                const cmdPath = path.join(commandsDir, cmdFile);
+                const cmdContent = fs.readFileSync(cmdPath, 'utf-8');
+                commands.push(cmdName);
+                commandContents.set(cmdName, cmdContent);
+              }
+            }
+
             // Unique commands
             const uniqueCommands = [...new Set(commands)];
 
-            const skillDef = { name, commands: uniqueCommands, content, description };
+            const skillDef = { name, commands: uniqueCommands, content, description, commandContents };
             this.skills.set(name, skillDef);
 
             for (const cmd of uniqueCommands) {
@@ -73,7 +89,16 @@ export class CommandHandler {
   getSkillCommand(command: string): string | null {
     const cleanCommand = command.startsWith('/') ? command.slice(1) : command;
     const skill = this.commandToSkill.get(cleanCommand);
-    return skill ? skill.content : null;
+    if (!skill) return null;
+
+    // Check if there's a specific command content for this command
+    const specificContent = skill.commandContents.get(cleanCommand);
+    if (specificContent) {
+      // Return both skill context and specific command content
+      return `${skill.content}\n\n---\n\n# Command: /${cleanCommand}\n\n${specificContent}`;
+    }
+
+    return skill.content;
   }
 
   async handle(input: string): Promise<CommandResult> {
