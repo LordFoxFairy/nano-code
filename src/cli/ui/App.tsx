@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Box, useApp, useInput } from 'ink';
+import { Command } from '@langchain/langgraph';
 import { WelcomeScreen } from './components/WelcomeScreen.js';
 import { UserMessage } from './components/UserMessage.js';
 import { AssistantMessage } from './components/AssistantMessage.js';
@@ -8,9 +9,35 @@ import { StatusBar } from './components/StatusBar.js';
 import { InputPrompt } from './components/InputPrompt.js';
 import { SystemMessage } from './components/SystemMessage.js';
 import { ThinkingIndicator } from './components/ThinkingIndicator.js';
+import { HITLApproval } from './components/HITLApproval.js';
 import { Session } from '../session.js';
 import { parseMessage } from '../message-utils.js';
 import { NanoCodeAgent } from '../../agent/factory.js';
+
+// HITL interrupt types from deepagents/langchain
+interface HITLActionRequest {
+  name: string;
+  args: Record<string, any>;
+  description?: string;
+}
+
+interface HITLRequest {
+  actionRequests: HITLActionRequest[];
+  reviewConfigs: { actionName: string; allowedDecisions: string[] }[];
+}
+
+interface HITLInterrupt {
+  value?: HITLRequest;
+}
+
+interface HITLDecision {
+  type: 'approve' | 'edit' | 'reject';
+  message?: string;
+}
+
+interface HITLResponse {
+  decisions: HITLDecision[];
+}
 
 interface AppProps {
   agent: NanoCodeAgent;
@@ -36,6 +63,8 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
     tokens: 0,
     cost: 0,
   });
+  const [pendingHITL, setPendingHITL] = useState<HITLRequest | null>(null);
+  const [hitlConfig, setHitlConfig] = useState<{ thread_id: string } | null>(null);
 
   // Handle Ctrl+C
   useInput((input, key) => {
@@ -46,6 +75,94 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
       exit();
     }
   });
+
+  // Handle HITL approval/rejection
+  const handleHITLDecision = async (decisions: HITLDecision[]) => {
+    if (!hitlConfig) return;
+
+    setPendingHITL(null);
+    setIsStreaming(true);
+
+    try {
+      const response: HITLResponse = { decisions };
+      const resumeCommand = new Command({ resume: response });
+
+      const stream = await agent.stream(resumeCommand, {
+        configurable: hitlConfig,
+        streamMode: 'values',
+      });
+
+      for await (const chunk of stream) {
+        // Process stream chunks same as handleSubmit
+        if (chunk.messages && Array.isArray(chunk.messages)) {
+          const agentMessages = chunk.messages;
+          const uiMessages: Message[] = [];
+
+          for (const msg of agentMessages) {
+            const parsed = parseMessage(msg);
+
+            if (parsed.role === 'user') {
+              uiMessages.push({
+                id: parsed.id || `user-${uiMessages.length}`,
+                role: 'user',
+                content: parsed.content,
+              });
+            }
+
+            if (parsed.role === 'assistant') {
+              uiMessages.push({
+                id: parsed.id || `asst-${uiMessages.length}`,
+                role: 'assistant',
+                content: parsed.content,
+                toolName: parsed.toolCalls?.[0]?.name,
+                toolArgs: parsed.toolCalls?.[0]?.args,
+              });
+            }
+
+            if (parsed.role === 'tool') {
+              uiMessages.push({
+                id: parsed.id || `tool-${uiMessages.length}`,
+                role: 'tool',
+                content: parsed.content,
+                toolName: parsed.name,
+                isError: parsed.isError,
+              });
+            }
+          }
+
+          setMessages(uiMessages);
+
+          setModelInfo((prev) => ({
+            ...prev,
+            tokens: uiMessages.reduce((acc, m) => acc + (m.content?.length || 0) / 4, 0),
+          }));
+        }
+
+        // Check for another HITL interrupt
+        if (chunk.__interrupt__) {
+          const interrupt = chunk.__interrupt__[0] as HITLInterrupt;
+          if (interrupt.value) {
+            setPendingHITL(interrupt.value);
+            setIsStreaming(false);
+            return;
+          }
+        }
+      }
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'system',
+          content: `Error: ${err.message}`,
+          isError: true,
+        },
+      ]);
+    } finally {
+      setIsStreaming(false);
+      setHitlConfig(null);
+    }
+  };
 
   const handleSubmit = async (value: string) => {
     if (!value.trim()) return;
@@ -65,7 +182,7 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
         const args = parts.slice(1);
 
         if (command === '/clear' || command === '/reset') {
-          session.clear();
+          await session.clear();
           setMessages([]);
           setIsStreaming(false);
           return;
@@ -131,10 +248,13 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
         return;
       }
 
+      const threadConfig = { thread_id: session.threadId };
+      setHitlConfig(threadConfig);
+
       const stream = await agent.stream(
         { messages: [{ role: 'user', content: value }] },
         {
-          configurable: { thread_id: session.threadId },
+          configurable: threadConfig,
           streamMode: 'values',
         },
       );
@@ -182,6 +302,16 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
             ...prev,
             tokens: uiMessages.reduce((acc, m) => acc + (m.content?.length || 0) / 4, 0),
           }));
+        }
+
+        // Check for HITL interrupt
+        if (chunk.__interrupt__) {
+          const interrupt = chunk.__interrupt__[0] as HITLInterrupt;
+          if (interrupt.value) {
+            setPendingHITL(interrupt.value);
+            setIsStreaming(false);
+            return;
+          }
         }
       }
     } catch (err: any) {
@@ -293,12 +423,39 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
         )}
       </Box>
 
+      {/* HITL Approval UI */}
+      {pendingHITL && (
+        <HITLApproval
+          request={pendingHITL}
+          onApprove={() => {
+            const decisions: HITLDecision[] = pendingHITL.actionRequests.map(() => ({
+              type: 'approve' as const,
+            }));
+            handleHITLDecision(decisions);
+          }}
+          onReject={(message?: string) => {
+            const decisions: HITLDecision[] = pendingHITL.actionRequests.map(() => ({
+              type: 'reject' as const,
+              message,
+            }));
+            handleHITLDecision(decisions);
+          }}
+          onEdit={(editedArgs: Record<string, any>) => {
+            const decisions: HITLDecision[] = pendingHITL.actionRequests.map(() => ({
+              type: 'edit' as const,
+              message: JSON.stringify(editedArgs),
+            }));
+            handleHITLDecision(decisions);
+          }}
+        />
+      )}
+
       <Box flexDirection="column">
         <InputPrompt
           value={inputValue}
           onChange={setInputValue}
           onSubmit={handleSubmit}
-          disabled={isStreaming}
+          disabled={isStreaming || !!pendingHITL}
         />
         <StatusBar
           model={modelInfo.model}

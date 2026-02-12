@@ -9,6 +9,8 @@ export interface CommandResult {
   output: string;
   skillContext?: string;
   skillName?: string;
+  allowedTools?: string[];
+  model?: string;
 }
 
 interface CommandFrontmatter {
@@ -290,13 +292,25 @@ export class CommandHandler {
           const skillDef = this.commandToSkill.get(cleanCommand);
           const frontmatter = this.getCommandFrontmatter(command);
 
+          // Parse allowed-tools from frontmatter
+          let allowedTools: string[] | undefined;
+          if (frontmatter?.['allowed-tools']) {
+            const tools = frontmatter['allowed-tools'];
+            if (typeof tools === 'string') {
+              // Parse comma-separated or space-separated list
+              allowedTools = tools.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
+            } else if (Array.isArray(tools)) {
+              allowedTools = tools;
+            }
+          }
+
           return {
             success: true,
             output: `Activated skill: ${skillDef?.name}${args.length > 0 ? ` with args: ${args.join(' ')}` : ''}`,
             skillContext: skillContent,
             skillName: skillDef?.name,
-            // Include frontmatter for potential tool restrictions
-            ...(frontmatter?.model && { model: frontmatter.model }),
+            allowedTools,
+            model: frontmatter?.model,
           };
         }
 

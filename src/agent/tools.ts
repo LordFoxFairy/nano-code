@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { StructuredTool } from '@langchain/core/tools';
 import { WebFetchTool } from './tools/webfetch.js';
+import { MultiEditTool } from './tools/multiedit.js';
 
 export { WebFetchTool, createWebFetchTool } from './tools/webfetch.js';
+export { MultiEditTool, createMultiEditTool } from './tools/multiedit.js';
+export type { EditOperation, FileEdit, EditResult } from './tools/multiedit.js';
 
 export class AskUserTool extends StructuredTool {
   name = 'ask_user';
@@ -43,6 +46,12 @@ export interface NanoCodeToolsOptions {
     allowedDomains?: string[];
     blockedDomains?: string[];
   };
+  /** Enable MultiEdit tool for batch file editing */
+  enableMultiEdit?: boolean;
+  /** MultiEdit configuration options */
+  multiEditOptions?: {
+    cwd?: string;
+  };
 }
 
 /**
@@ -56,6 +65,12 @@ export function getNanoCodeTools(options?: NanoCodeToolsOptions): StructuredTool
   if (options?.enableWebFetch !== false) {
     // Enabled by default
     tools.push(new WebFetchTool(options?.webFetchOptions));
+  }
+
+  // Add MultiEdit tool if enabled
+  if (options?.enableMultiEdit !== false) {
+    // Enabled by default
+    tools.push(new MultiEditTool(options?.multiEditOptions));
   }
 
   return tools;
