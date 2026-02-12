@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { StructuredTool } from '@langchain/core/tools';
+import { WebFetchTool } from './tools/webfetch.js';
+
+export { WebFetchTool, createWebFetchTool } from './tools/webfetch.js';
 
 export class AskUserTool extends StructuredTool {
   name = 'ask_user';
@@ -29,9 +32,31 @@ export class AskUserTool extends StructuredTool {
 }
 
 /**
+ * Options for configuring NanoCode tools
+ */
+export interface NanoCodeToolsOptions {
+  /** Enable WebFetch tool for fetching web content */
+  enableWebFetch?: boolean;
+  /** WebFetch configuration options */
+  webFetchOptions?: {
+    maxContentLength?: number;
+    allowedDomains?: string[];
+    blockedDomains?: string[];
+  };
+}
+
+/**
  * Returns a list of custom tools for NanoCode.
  * Note: File traversal and manipulation tools are now provided by the LocalSandbox (BaseSandbox).
  */
-export function getNanoCodeTools(): StructuredTool[] {
-  return [new AskUserTool()];
+export function getNanoCodeTools(options?: NanoCodeToolsOptions): StructuredTool[] {
+  const tools: StructuredTool[] = [new AskUserTool()];
+
+  // Add WebFetch tool if enabled
+  if (options?.enableWebFetch !== false) {
+    // Enabled by default
+    tools.push(new WebFetchTool(options?.webFetchOptions));
+  }
+
+  return tools;
 }
