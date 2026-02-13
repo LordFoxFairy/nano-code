@@ -89,6 +89,18 @@ export interface SettingsConfig {
 }
 
 /**
+ * Configuration for an MCP server
+ */
+export interface MCPServerConfig {
+  command?: string;
+  args?: string[];
+  url?: string;
+  type?: 'stdio' | 'sse' | 'http';
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+}
+
+/**
  * Main NanoCode configuration interface
  */
 export interface NanoConfig {
@@ -100,6 +112,12 @@ export interface NanoConfig {
 
   /** General settings */
   settings?: SettingsConfig;
+
+  /** MCP configuration */
+  mcp?: {
+    servers?: Record<string, MCPServerConfig>;
+    enabled?: boolean;
+  };
 }
 
 /**

@@ -14,8 +14,9 @@ import { existsSync } from 'fs';
 import { StructuredTool } from '@langchain/core/tools';
 import { createDeepAgent } from 'deepagents';
 import { MemorySaver } from '@langchain/langgraph';
-import type { NanoConfig, RouterMode } from '../core/config/types.js';
+import type { NanoConfig, RouterMode, MCPServerConfig } from '../core/config/types.js';
 import { ModelResolver } from '../core/llm/resolver.js';
+import { MCPManager } from '../core/mcp/index.js';
 import { LocalSandbox } from './sandbox.js';
 import { getNanoCodeTools } from './tools.js';
 import { loadSubagents } from '../core/agent/loader.js';
@@ -82,6 +83,11 @@ export interface AgentFactoryOptions {
     maxTokens: number;
     keepLastN?: number;
   };
+  mcp?: {
+    enabled?: boolean;
+    servers?: Record<string, MCPServerConfig>;
+  };
+
 }
 
 /**
@@ -131,6 +137,7 @@ export class NanoCodeAgent {
     private readonly context: {
       mode: RouterMode;
       toolRegistry: ToolRegistry;
+      mcpManager?: MCPManager;
     },
   ) {
     this.agent = agent;
@@ -163,6 +170,15 @@ export class NanoCodeAgent {
    */
   getToolRegistry(): ToolRegistry {
     return this.toolRegistry;
+  }
+
+  /**
+   * Cleanup agent resources
+   */
+  async cleanup(): Promise<void> {
+    if (this.context.mcpManager) {
+      await this.context.mcpManager.cleanup();
+    }
   }
 }
 
@@ -207,6 +223,35 @@ export class AgentFactory {
     const model = ModelResolver.resolveByMode(config, mode);
     const backend = new LocalSandbox(cwd);
     let tools = getNanoCodeTools();
+
+    // Initialize MCP if enabled
+    const mcpConfig = this.options.mcp || config.mcp;
+    let mcpManager: MCPManager | undefined;
+
+    if (mcpConfig?.enabled !== false) {
+      mcpManager = new MCPManager();
+
+      try {
+        if (mcpConfig?.servers) {
+           for (const [name, srv] of Object.entries(mcpConfig.servers)) {
+             await mcpManager.connect(name, srv);
+           }
+        } else {
+           // Try loading from default config file
+           await mcpManager.loadFromConfig();
+        }
+
+        const mcpTools = mcpManager.getTools();
+        if (mcpTools.length > 0) {
+           tools = [...tools, ...mcpTools];
+        }
+      } catch (err) {
+        // Log warning but continue without MCP
+        if (process.env.NODE_ENV !== 'test') {
+          console.warn('Failed to initialize MCP:', err);
+        }
+      }
+    }
 
     // Initialize tool registry with all available tools
     const toolRegistry = initializeGlobalToolRegistry(tools);
@@ -292,6 +337,7 @@ export class AgentFactory {
     return new NanoCodeAgent(agent as unknown as DeepAgent, {
       mode,
       toolRegistry,
+      mcpManager,
     });
   }
 

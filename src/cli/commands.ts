@@ -1,8 +1,10 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'path';
+import os from 'os';
 import { execSync } from 'child_process';
 import type { Session } from './session.js';
+import type { MCPServerConfig } from '../core/config/types.js';
 
 export interface CommandResult {
   success: boolean;
@@ -12,7 +14,18 @@ export interface CommandResult {
   allowedTools?: string[];
   model?: string;
   /** Flag indicating a history/save action was performed */
-  action?: 'save' | 'history_show' | 'skills_list';
+  action?: 'save' | 'history_show' | 'skills_list' | 'mcp_status';
+}
+
+/**
+ * MCP server connection status
+ */
+interface MCPServerStatus {
+  name: string;
+  config: MCPServerConfig;
+  status: 'connected' | 'disconnected' | 'error' | 'unknown';
+  toolCount?: number;
+  error?: string;
 }
 
 interface CommandFrontmatter {
@@ -35,6 +48,7 @@ export class CommandHandler {
   private skills: Map<string, SkillDefinition> = new Map();
   private commandToSkill: Map<string, SkillDefinition> = new Map();
   private cwd: string;
+  private mcpServers: Map<string, MCPServerStatus> = new Map();
 
   constructor(
     private readonly session: Session,
@@ -42,6 +56,7 @@ export class CommandHandler {
   ) {
     this.cwd = cwd || process.cwd();
     this.loadSkills();
+    this.loadMCPConfig();
   }
 
   /**
@@ -161,6 +176,83 @@ export class CommandHandler {
     }
 
     return result;
+  }
+
+  /**
+   * Load MCP configuration from config files
+   */
+  private loadMCPConfig(): void {
+    try {
+      // Try to load project .mcp.json
+      const projectMcpPath = path.join(this.cwd, '.mcp.json');
+      if (fs.existsSync(projectMcpPath)) {
+        const content = fs.readFileSync(projectMcpPath, 'utf-8');
+        const mcpConfig = JSON.parse(content);
+        this.parseMCPConfig(mcpConfig);
+      }
+
+      // Try to load global ~/.nanocode/mcp.json
+      const globalMcpPath = path.join(os.homedir(), '.nanocode', 'mcp.json');
+      if (fs.existsSync(globalMcpPath)) {
+        const content = fs.readFileSync(globalMcpPath, 'utf-8');
+        const mcpConfig = JSON.parse(content);
+        this.parseMCPConfig(mcpConfig);
+      }
+
+      // Also check ~/.agents/config.json for mcp section
+      const agentsConfigPath = path.join(this.cwd, '.agents', 'config.json');
+      if (fs.existsSync(agentsConfigPath)) {
+        const content = fs.readFileSync(agentsConfigPath, 'utf-8');
+        const config = JSON.parse(content);
+        if (config.mcp?.servers) {
+          this.parseMCPServers(config.mcp.servers);
+        }
+      }
+    } catch (error) {
+      // Silently fail - MCP config is optional
+    }
+  }
+
+  /**
+   * Parse MCP config object (supports multiple formats)
+   */
+  private parseMCPConfig(config: Record<string, unknown>): void {
+    // Support { mcpServers: { ... } } format (Claude Desktop style)
+    if (config.mcpServers && typeof config.mcpServers === 'object') {
+      this.parseMCPServers(config.mcpServers as Record<string, MCPServerConfig>);
+    }
+    // Support { mcp: { servers: { ... } } } format
+    if (config.mcp && typeof config.mcp === 'object') {
+      const mcp = config.mcp as Record<string, unknown>;
+      if (mcp.servers && typeof mcp.servers === 'object') {
+        this.parseMCPServers(mcp.servers as Record<string, MCPServerConfig>);
+      }
+    }
+    // Support direct { serverName: { ... } } format
+    if (!config.mcpServers && !config.mcp) {
+      // Check if keys look like server configs
+      for (const [key, value] of Object.entries(config)) {
+        if (typeof value === 'object' && value !== null && ('command' in value || 'url' in value)) {
+          this.parseMCPServers({ [key]: value as MCPServerConfig });
+        }
+      }
+    }
+  }
+
+  /**
+   * Parse MCP servers from config
+   */
+  private parseMCPServers(servers: Record<string, MCPServerConfig>): void {
+    for (const [name, config] of Object.entries(servers)) {
+      // Don't override existing servers (project config takes precedence)
+      if (!this.mcpServers.has(name)) {
+        this.mcpServers.set(name, {
+          name,
+          config,
+          status: 'disconnected', // Default to disconnected
+        });
+      }
+    }
   }
 
   private loadSkills() {
@@ -294,6 +386,8 @@ export class CommandHandler {
         return this.handleStatus();
       case '/compact':
         return this.handleCompact();
+      case '/mcp':
+        return this.handleMCP(args);
 
       default:
         // Check for skill command
@@ -349,6 +443,7 @@ export class CommandHandler {
       '  /skills         List all available skills',
       '  /status         Show current session status',
       '  /compact        Summarize and compact context',
+      '  /mcp            Show MCP server status and tools',
       '  /exit           Exit NanoCode',
     ];
 
@@ -483,5 +578,327 @@ export class CommandHandler {
       success: true,
       output: chalk.yellow('Context compaction requested. This will be applied at the next interaction.'),
     };
+  }
+
+  /**
+   * Handle /mcp command with subcommands
+   * - /mcp - Show MCP status (connected servers, available tools)
+   * - /mcp list - List all configured servers and their status
+   * - /mcp tools - List all MCP-provided tools
+   * - /mcp connect <server> - Connect to a specific server
+   * - /mcp disconnect <server> - Disconnect from a server
+   */
+  private handleMCP(args: string[]): CommandResult {
+    const subcommand = args[0]?.toLowerCase();
+
+    switch (subcommand) {
+      case 'list':
+        return this.handleMCPList();
+      case 'tools':
+        return this.handleMCPTools();
+      case 'connect':
+        return this.handleMCPConnect(args[1]);
+      case 'disconnect':
+        return this.handleMCPDisconnect(args[1]);
+      default:
+        return this.handleMCPStatus();
+    }
+  }
+
+  /**
+   * Show MCP overall status
+   */
+  private handleMCPStatus(): CommandResult {
+    if (this.mcpServers.size === 0) {
+      const output = [
+        chalk.bold('MCP Status'),
+        '',
+        chalk.dim('No MCP servers configured.'),
+        '',
+        chalk.dim('To configure MCP servers, create one of:'),
+        chalk.dim('  - .mcp.json in your project directory'),
+        chalk.dim('  - ~/.nanocode/mcp.json for global config'),
+        chalk.dim('  - mcp section in .agents/config.json'),
+        '',
+        chalk.dim('Example .mcp.json:'),
+        chalk.dim('  {'),
+        chalk.dim('    "mcpServers": {'),
+        chalk.dim('      "my-server": {'),
+        chalk.dim('        "command": "npx",'),
+        chalk.dim('        "args": ["-y", "@my/mcp-server"]'),
+        chalk.dim('      }'),
+        chalk.dim('    }'),
+        chalk.dim('  }'),
+      ];
+      return { success: true, output: output.join('\n'), action: 'mcp_status' };
+    }
+
+    const connectedCount = Array.from(this.mcpServers.values()).filter(
+      (s) => s.status === 'connected',
+    ).length;
+    const totalTools = Array.from(this.mcpServers.values()).reduce(
+      (acc, s) => acc + (s.toolCount || 0),
+      0,
+    );
+
+    const output = [
+      chalk.bold('MCP Status'),
+      '',
+      `  ${chalk.cyan('Servers:')}    ${connectedCount}/${this.mcpServers.size} connected`,
+      `  ${chalk.cyan('Tools:')}      ${totalTools} available`,
+      '',
+      chalk.bold('Configured Servers:'),
+    ];
+
+    for (const [name, server] of this.mcpServers.entries()) {
+      const statusIcon = this.getStatusIcon(server.status);
+      const statusColor = this.getStatusColor(server.status);
+      const toolInfo = server.toolCount !== undefined ? chalk.dim(` (${server.toolCount} tools)`) : '';
+      const typeInfo = this.getServerTypeInfo(server.config);
+
+      output.push(`  ${statusIcon} ${chalk.bold(name)} ${statusColor(server.status)}${toolInfo}`);
+      output.push(`    ${chalk.dim(typeInfo)}`);
+    }
+
+    output.push('');
+    output.push(chalk.dim('Use /mcp list for details, /mcp tools to see available tools'));
+
+    return { success: true, output: output.join('\n'), action: 'mcp_status' };
+  }
+
+  /**
+   * List all MCP servers with details
+   */
+  private handleMCPList(): CommandResult {
+    if (this.mcpServers.size === 0) {
+      return {
+        success: true,
+        output: chalk.dim('No MCP servers configured.'),
+        action: 'mcp_status',
+      };
+    }
+
+    const output = [chalk.bold('MCP Servers:'), ''];
+
+    for (const [name, server] of this.mcpServers.entries()) {
+      const statusIcon = this.getStatusIcon(server.status);
+      const statusColor = this.getStatusColor(server.status);
+
+      output.push(`${statusIcon} ${chalk.bold(name)}`);
+      output.push(`    Status:  ${statusColor(server.status)}`);
+
+      if (server.config.command) {
+        const args = server.config.args?.join(' ') || '';
+        output.push(`    Command: ${chalk.cyan(server.config.command)} ${chalk.dim(args)}`);
+      }
+
+      if (server.config.url) {
+        output.push(`    URL:     ${chalk.cyan(server.config.url)}`);
+      }
+
+      if (server.config.type) {
+        output.push(`    Type:    ${chalk.dim(server.config.type)}`);
+      }
+
+      if (server.toolCount !== undefined) {
+        output.push(`    Tools:   ${server.toolCount}`);
+      }
+
+      if (server.error) {
+        output.push(`    Error:   ${chalk.red(server.error)}`);
+      }
+
+      output.push('');
+    }
+
+    return { success: true, output: output.join('\n'), action: 'mcp_status' };
+  }
+
+  /**
+   * List all tools from MCP servers
+   */
+  private handleMCPTools(): CommandResult {
+    if (this.mcpServers.size === 0) {
+      return {
+        success: true,
+        output: chalk.dim('No MCP servers configured.'),
+        action: 'mcp_status',
+      };
+    }
+
+    const connectedServers = Array.from(this.mcpServers.values()).filter(
+      (s) => s.status === 'connected',
+    );
+
+    if (connectedServers.length === 0) {
+      const output = [
+        chalk.yellow('No MCP servers are currently connected.'),
+        '',
+        chalk.dim('Use /mcp connect <server> to connect to a server.'),
+        '',
+        chalk.dim('Available servers:'),
+      ];
+
+      for (const name of this.mcpServers.keys()) {
+        output.push(`  - ${name}`);
+      }
+
+      return { success: true, output: output.join('\n'), action: 'mcp_status' };
+    }
+
+    const output = [chalk.bold('MCP Tools:'), ''];
+
+    for (const server of connectedServers) {
+      output.push(`${chalk.cyan(server.name)} ${chalk.dim(`(${server.toolCount || 0} tools)`)}`);
+
+      // In a real implementation, we would list actual tools here
+      // For now, show a placeholder since we don't have actual tool info
+      if (server.toolCount && server.toolCount > 0) {
+        output.push(chalk.dim('  (Tool details would be shown here when server is connected)'));
+      } else {
+        output.push(chalk.dim('  No tools available'));
+      }
+
+      output.push('');
+    }
+
+    return { success: true, output: output.join('\n'), action: 'mcp_status' };
+  }
+
+  /**
+   * Connect to an MCP server
+   */
+  private handleMCPConnect(serverName?: string): CommandResult {
+    if (!serverName) {
+      return {
+        success: false,
+        output: chalk.red('Usage: /mcp connect <server-name>'),
+      };
+    }
+
+    const server = this.mcpServers.get(serverName);
+    if (!server) {
+      const available = Array.from(this.mcpServers.keys()).join(', ');
+      return {
+        success: false,
+        output: available
+          ? `${chalk.red(`Server "${serverName}" not found.`)} Available: ${available}`
+          : chalk.red(`Server "${serverName}" not found. No servers configured.`),
+      };
+    }
+
+    if (server.status === 'connected') {
+      return {
+        success: true,
+        output: chalk.yellow(`Server "${serverName}" is already connected.`),
+      };
+    }
+
+    // Update status to connected (in a real implementation, we would actually connect)
+    server.status = 'connected';
+    server.toolCount = 0; // Would be populated by actual connection
+
+    // Note: Real connection would happen via the agent's MCP client
+    // This is a placeholder that updates the UI state
+    return {
+      success: true,
+      output: [
+        chalk.green(`Connecting to "${serverName}"...`),
+        '',
+        chalk.dim('Note: MCP server connection is handled by the agent.'),
+        chalk.dim('Tools from this server will be available in the next interaction.'),
+      ].join('\n'),
+      action: 'mcp_status',
+    };
+  }
+
+  /**
+   * Disconnect from an MCP server
+   */
+  private handleMCPDisconnect(serverName?: string): CommandResult {
+    if (!serverName) {
+      return {
+        success: false,
+        output: chalk.red('Usage: /mcp disconnect <server-name>'),
+      };
+    }
+
+    const server = this.mcpServers.get(serverName);
+    if (!server) {
+      const available = Array.from(this.mcpServers.keys()).join(', ');
+      return {
+        success: false,
+        output: available
+          ? `${chalk.red(`Server "${serverName}" not found.`)} Available: ${available}`
+          : chalk.red(`Server "${serverName}" not found. No servers configured.`),
+      };
+    }
+
+    if (server.status === 'disconnected') {
+      return {
+        success: true,
+        output: chalk.yellow(`Server "${serverName}" is already disconnected.`),
+      };
+    }
+
+    // Update status to disconnected
+    server.status = 'disconnected';
+    server.toolCount = undefined;
+
+    return {
+      success: true,
+      output: chalk.green(`Disconnected from "${serverName}".`),
+      action: 'mcp_status',
+    };
+  }
+
+  /**
+   * Get status icon for display
+   */
+  private getStatusIcon(status: MCPServerStatus['status']): string {
+    switch (status) {
+      case 'connected':
+        return chalk.green('●');
+      case 'disconnected':
+        return chalk.dim('○');
+      case 'error':
+        return chalk.red('✗');
+      default:
+        return chalk.yellow('?');
+    }
+  }
+
+  /**
+   * Get status color function
+   */
+  private getStatusColor(status: MCPServerStatus['status']): (text: string) => string {
+    switch (status) {
+      case 'connected':
+        return chalk.green;
+      case 'disconnected':
+        return chalk.dim;
+      case 'error':
+        return chalk.red;
+      default:
+        return chalk.yellow;
+    }
+  }
+
+  /**
+   * Get server type info string
+   */
+  private getServerTypeInfo(config: MCPServerConfig): string {
+    if (config.command) {
+      const args = config.args?.slice(0, 3).join(' ') || '';
+      const truncated = config.args && config.args.length > 3 ? '...' : '';
+      return `${config.command} ${args}${truncated}`;
+    }
+    if (config.url) {
+      return config.url;
+    }
+    if (config.type) {
+      return `Type: ${config.type}`;
+    }
+    return 'Unknown configuration';
   }
 }

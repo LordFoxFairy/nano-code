@@ -39,6 +39,7 @@
     "@langchain/core": "^1.1.22",
     "@langchain/ollama": "^1.2.2",
     "@langchain/openai": "^1.2.7",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/diff": "^7.0.2",
     "@types/marked-terminal": "^6.1.1",
     "boxen": "^7.1.1",

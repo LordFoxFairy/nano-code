@@ -52,7 +52,10 @@ export async function loadConfig(options: { cwd?: string } = {}): Promise<NanoCo
     if (error instanceof ConfigError) throw error;
   }
 
-  // 4. Validate the final configuration
+  // 4. Load MCP config (.mcp.json)
+  await loadMCPConfigs(config, cwd);
+
+  // 5. Validate the final configuration
   // Skip validation if config is empty (default) to support init flows
   // Also check if any other router keys are set besides opus
   if (
@@ -138,6 +141,43 @@ async function readConfigFile(filePath: string): Promise<NanoConfig | null> {
       );
     }
     throw error;
+  }
+}
+
+async function loadMCPConfigs(config: NanoConfig, cwd: string) {
+  // Load global .mcp.json
+  const globalMcpPath = path.join(getHomeDir(), '.nanocode', 'mcp.json');
+  const globalMcp = await readConfigFile(globalMcpPath);
+
+  // Load project .mcp.json
+  const projectMcpPath = path.join(cwd, '.mcp.json');
+  const projectMcp = await readConfigFile(projectMcpPath);
+
+  if (globalMcp || projectMcp) {
+    if (!config.mcp) config.mcp = { enabled: true, servers: {} };
+    if (!config.mcp.servers) config.mcp.servers = {};
+
+    // Merge global MCP servers
+    if (globalMcp?.mcp?.servers) {
+      Object.assign(config.mcp.servers, globalMcp.mcp.servers);
+    } else if (globalMcp && Object.keys(globalMcp).length > 0 && !('providers' in globalMcp)) {
+       // Support direct mcp config structure if not wrapped in full NanoConfig
+       if ('mcpServers' in globalMcp) {
+          // @ts-ignore - Handle direct MCP config format
+          Object.assign(config.mcp.servers, globalMcp.mcpServers);
+       }
+    }
+
+    // Merge project MCP servers (overrides global)
+    if (projectMcp?.mcp?.servers) {
+      Object.assign(config.mcp.servers, projectMcp.mcp.servers);
+    } else if (projectMcp && Object.keys(projectMcp).length > 0 && !('providers' in projectMcp)) {
+       // Support direct mcp config structure
+       if ('mcpServers' in projectMcp) {
+          // @ts-ignore
+          Object.assign(config.mcp.servers, projectMcp.mcpServers);
+       }
+    }
   }
 }
 
