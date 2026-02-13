@@ -25,6 +25,12 @@ import {
   filterTools,
   type ToolRestrictionConfig,
 } from '../middleware/tool-restriction.js';
+import {
+  createNanoCodeMiddleware,
+  type NanoCodeMiddlewareConfig,
+  type UsageStats,
+  MODEL_PRICING,
+} from '../middleware/agent-middleware.js';
 
 /**
  * Loaded subagent from our loader
@@ -65,6 +71,17 @@ export interface AgentFactoryOptions {
   allowedTools?: string[];
   /** Throw error instead of returning message when blocked */
   throwOnBlockedTool?: boolean;
+  /** Enable token tracking */
+  enableTokenTracking?: boolean;
+  /** Enable cost tracking */
+  enableCostTracking?: boolean;
+  /** Callback for usage updates */
+  onUsageUpdate?: (stats: UsageStats) => void;
+  /** Summarization config for context compaction */
+  summarization?: {
+    maxTokens: number;
+    keepLastN?: number;
+  };
 }
 
 /**
@@ -174,7 +191,18 @@ export class AgentFactory {
    * Build the agent
    */
   async build(): Promise<NanoCodeAgent> {
-    const { config, mode, cwd, hitl, allowedTools, throwOnBlockedTool } = this.options;
+    const {
+      config,
+      mode,
+      cwd,
+      hitl,
+      allowedTools,
+      throwOnBlockedTool,
+      enableTokenTracking,
+      enableCostTracking,
+      onUsageUpdate,
+      summarization,
+    } = this.options;
 
     const model = ModelResolver.resolveByMode(config, mode);
     const backend = new LocalSandbox(cwd);
@@ -191,15 +219,43 @@ export class AgentFactory {
     const interruptOn =
       hitl === false ? undefined : config.settings?.interruptOn || DEFAULT_INTERRUPT_CONFIG;
 
-    // Build middleware configuration
-    const middlewareConfig: { wrapToolCall?: ReturnType<typeof createToolRestrictionMiddleware> } =
-      {};
+    // Build NanoCode middleware for token tracking, cost calculation, summarization
+    const nanoCodeMiddlewareConfig: NanoCodeMiddlewareConfig = {
+      enableTokenTracking: enableTokenTracking ?? true, // Enable by default
+      enableCostTracking: enableCostTracking ?? true,   // Enable by default
+      pricing: this.getModelPricing(mode),
+      onUsageUpdate,
+      summarization,
+    };
+    const nanoCodeMiddleware = createNanoCodeMiddleware(nanoCodeMiddlewareConfig);
+
+    // Build tool restriction middleware if needed
+    const middlewareConfig: {
+      wrapToolCall?: ReturnType<typeof createToolRestrictionMiddleware>;
+      wrapModelCall?: typeof nanoCodeMiddleware.wrapModelCall;
+      beforeModel?: typeof nanoCodeMiddleware.beforeModel;
+    } = {};
+
+    // Add NanoCode middleware hooks
+    if (nanoCodeMiddleware.wrapModelCall) {
+      middlewareConfig.wrapModelCall = nanoCodeMiddleware.wrapModelCall;
+    }
+    if (nanoCodeMiddleware.beforeModel) {
+      middlewareConfig.beforeModel = nanoCodeMiddleware.beforeModel;
+    }
+
+    // Add tool restriction middleware
     if (allowedTools && allowedTools.length > 0) {
       const restrictionConfig: ToolRestrictionConfig = {
         allowedTools,
         throwOnBlocked: throwOnBlockedTool,
       };
       middlewareConfig.wrapToolCall = createToolRestrictionMiddleware(restrictionConfig);
+    } else if (nanoCodeMiddleware.wrapToolCall) {
+      // Use NanoCode middleware for tool tracking if no restrictions
+      middlewareConfig.wrapToolCall = nanoCodeMiddleware.wrapToolCall as ReturnType<
+        typeof createToolRestrictionMiddleware
+      >;
     }
 
     // Load subagents from skills directories
@@ -237,6 +293,21 @@ export class AgentFactory {
       mode,
       toolRegistry,
     });
+  }
+
+  /**
+   * Get model pricing based on mode
+   */
+  private getModelPricing(mode: RouterMode) {
+    switch (mode) {
+      case 'opus':
+        return MODEL_PRICING['claude-opus-4'];
+      case 'haiku':
+        return MODEL_PRICING['claude-3-haiku'];
+      case 'sonnet':
+      default:
+        return MODEL_PRICING['claude-sonnet-4'];
+    }
   }
 
   /**

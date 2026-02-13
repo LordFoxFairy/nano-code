@@ -37,3 +37,26 @@ export {
   addMetadataHook,
   createDefaultToolHooksMiddleware,
 } from './tool-hooks.js';
+
+// Agent middleware - Token tracking, cost calculation, summarization
+export {
+  // Types
+  UsageMetadata,
+  ModelPricing,
+  UsageStats,
+  SummarizationConfig,
+  NanoCodeMiddlewareConfig,
+  NanoCodeMiddleware,
+  // Constants
+  MODEL_PRICING,
+  // Main factory
+  createNanoCodeMiddleware,
+  // Utilities
+  getUsageTracker,
+  getUsageStats,
+  resetUsageStats,
+  onUsageUpdate,
+  formatUsageStats,
+  formatCompactUsage,
+  approximateTokenCount,
+} from './agent-middleware.js';
