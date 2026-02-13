@@ -3,7 +3,17 @@ import chalk from 'chalk';
 import { Session } from './session.js';
 import { CommandHandler } from './commands.js';
 import { StreamingRenderer } from './renderer.js';
-import { parseMessage } from './message-utils.js';
+import { parseMessage, MessageLike } from './message-utils.js';
+
+interface ToolCall {
+  name?: string;
+  args?: Record<string, unknown>;
+}
+
+interface StreamChunk {
+  messages?: unknown[];
+  tool_calls?: ToolCall[];
+}
 
 export class REPL {
   private rl: readline.Interface;
@@ -13,10 +23,8 @@ export class REPL {
   private abortController: AbortController | null = null;
   private history: string[] = [];
 
-  // Use any to avoid "excessively deep" type instantiation with LangGraph types
-  // The actual interface is compatible with stream()
   constructor(
-    private agent: any,
+    private agent: { stream: (input: unknown, config: unknown) => Promise<AsyncIterable<unknown>> },
     private session: Session,
   ) {
     this.rl = readline.createInterface({
@@ -63,7 +71,8 @@ ${chalk.blue('╰─>')} `;
         } else {
           await this.handleNormalInput(input);
         }
-      } catch (error: any) {
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
         this.renderer.render({ type: 'error', content: error.message });
       }
 
@@ -124,14 +133,13 @@ ${chalk.blue('╰─>')} `;
       let fullResponse = '';
       const processedMessages = new Set<string>();
 
-      for await (const chunk of stream) {
+      for await (const rawChunk of stream) {
+        const chunk = rawChunk as StreamChunk;
+
         // Handle LangGraph values stream (returns full state)
         if (chunk.messages && Array.isArray(chunk.messages)) {
-          const messages = chunk.messages;
-
-          // Process new messages we haven't seen yet
-          for (const msg of messages) {
-            const parsedMsg = parseMessage(msg);
+          for (const msg of chunk.messages) {
+            const parsedMsg = parseMessage(msg as MessageLike);
             const { role, content, toolCalls, id: msgId, name, isError } = parsedMsg;
 
             // Optional debug log
@@ -176,13 +184,8 @@ ${chalk.blue('╰─>')} `;
         }
 
         // Handle direct chunks if tool_calls not in messages (for streaming modes other than 'values')
-        if (
-          chunk &&
-          typeof chunk === 'object' &&
-          'tool_calls' in chunk &&
-          Array.isArray((chunk as any).tool_calls)
-        ) {
-          for (const toolCall of (chunk as any).tool_calls) {
+        if (chunk.tool_calls && Array.isArray(chunk.tool_calls)) {
+          for (const toolCall of chunk.tool_calls) {
             this.renderer.render({
               type: 'tool_call_start',
               toolName: toolCall.name ?? 'unknown',
@@ -200,11 +203,11 @@ ${chalk.blue('╰─>')} `;
         // Let's use the renderer to print a nice divider or something
       }
       this.session.addMessage({ role: 'assistant', content: fullResponse });
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (err: unknown) {
+      if ((err as Error).name === 'AbortError') {
         console.log(chalk.yellow('\nRequest aborted.'));
       } else {
-        throw error;
+        throw err;
       }
     } finally {
       this.isStreaming = false;

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { z } from 'zod';
 import { AskUserTool, getNanoCodeTools, WebFetchTool, WebSearchTool, MultiEditTool, LSPTool } from '../../../src/agent/tools';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -17,7 +18,7 @@ describe('AskUserTool', () => {
     });
 
     it('should have correct schema', () => {
-        const schema = tool.schema as any;
+        const schema = tool.schema as z.ZodObject<any>;
         const shape = schema.shape;
         expect(shape.question).toBeDefined();
         expect(shape.type).toBeDefined();
@@ -110,7 +111,7 @@ describe('WebFetchTool', () => {
     });
 
     it('should have correct schema', () => {
-        const schema = tool.schema as any;
+        const schema = tool.schema as z.ZodObject<any>;
         const shape = schema.shape;
         expect(shape.url).toBeDefined();
         expect(shape.prompt).toBeDefined();
@@ -140,7 +141,7 @@ describe('MultiEditTool', () => {
     });
 
     it('should have correct schema', () => {
-        const schema = tool.schema as any;
+        const schema = tool.schema as z.ZodObject<any>;
         const shape = schema.shape;
         expect(shape.files).toBeDefined();
         expect(shape.dry_run).toBeDefined();

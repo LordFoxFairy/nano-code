@@ -1,31 +1,34 @@
-export const formatToolArgs = (toolName: string, args: any): string => {
+export const formatToolArgs = (toolName: string, args: unknown): string => {
   if (!args) return '';
 
+  if (typeof args === 'string') return args;
+
+  const argObj = args as Record<string, unknown>;
+
   // Handle specific common tools for cleaner output
-  if (toolName === 'Bash' && args.command) {
-    return args.command;
+  if (toolName === 'Bash' && typeof argObj.command === 'string') {
+    return argObj.command;
   }
 
-  if (toolName === 'Read' && args.file_path) {
-    return args.file_path;
+  if (toolName === 'Read' && typeof argObj.file_path === 'string') {
+    return argObj.file_path;
   }
 
-  if (toolName === 'Write' && args.file_path) {
-    return args.file_path;
+  if (toolName === 'Write' && typeof argObj.file_path === 'string') {
+    return argObj.file_path;
   }
 
-  if (toolName === 'Glob' && args.pattern) {
-    return args.pattern;
+  if (toolName === 'Glob' && typeof argObj.pattern === 'string') {
+    return argObj.pattern;
   }
 
-  if (toolName === 'Grep' && args.pattern) {
+  if (toolName === 'Grep' && typeof argObj.pattern === 'string') {
     // pattern and path
-    return `"${args.pattern}" ${args.path || ''}`;
+    return `"${argObj.pattern}" ${argObj.path || ''}`;
   }
 
   // Default: compact JSON-like representation
   try {
-    if (typeof args === 'string') return args;
     return JSON.stringify(args)
       .replace(/^{|}$/g, '') // Remove outer braces
       .replace(/"([^"]+)":/g, '$1:') // Remove quotes from keys

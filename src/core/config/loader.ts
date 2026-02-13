@@ -129,8 +129,8 @@ async function readConfigFile(filePath: string): Promise<NanoConfig | null> {
 
     const content = await fs.readFile(filePath, 'utf-8');
     return JSON.parse(content) as NanoConfig;
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'ENOENT') {
       return null;
     }
     if (error instanceof SyntaxError) {

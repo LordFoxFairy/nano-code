@@ -6,7 +6,7 @@ import fs from 'fs-extra';
 export interface Message {
   role: string;
   content: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface SessionData {
@@ -16,7 +16,7 @@ export interface SessionData {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 // Session lifecycle event types
@@ -37,7 +37,7 @@ export class Session {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 
   private eventHandlers: Map<SessionEvent, SessionEventHandler[]> = new Map();
   private isRestored: boolean = false;
@@ -110,7 +110,7 @@ export class Session {
   /**
    * Set metadata value
    */
-  setMetadata(key: string, value: any): void {
+  setMetadata(key: string, value: unknown): void {
     this.metadata[key] = value;
     this.updatedAt = Date.now();
   }
@@ -118,8 +118,8 @@ export class Session {
   /**
    * Get metadata value
    */
-  getMetadata<T = any>(key: string): T | undefined {
-    return this.metadata[key] as T;
+  getMetadata<T = unknown>(key: string): T | undefined {
+    return this.metadata[key] as T | undefined;
   }
 
   async clear(): Promise<void> {

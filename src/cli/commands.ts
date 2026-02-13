@@ -154,8 +154,9 @@ export class CommandHandler {
           stdio: ['pipe', 'pipe', 'pipe'],
         }).trim();
         result = result.replace(match[0], output);
-      } catch (error: any) {
-        const errorMsg = error.stderr || error.message || 'Command failed';
+      } catch (err: unknown) {
+        const execError = err as { stderr?: string; message?: string };
+        const errorMsg = execError.stderr || execError.message || 'Command failed';
         result = result.replace(match[0], `[Error executing '${command}': ${errorMsg}]`);
       }
     }
@@ -186,7 +187,8 @@ export class CommandHandler {
         } else {
           result = result.replace(match[0], `[File not found: ${filepath}]`);
         }
-      } catch (error: any) {
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
         result = result.replace(match[0], `[Error reading ${filepath}: ${error.message}]`);
       }
     }

@@ -12,24 +12,44 @@ interface LSPRequest {
   jsonrpc: '2.0';
   id: string | number;
   method: string;
-  params?: any;
-}
-
-interface LSPResponse {
-  jsonrpc: '2.0';
-  id: string | number;
-  result?: any;
-  error?: {
-    code: number;
-    message: string;
-    data?: any;
-  };
+  params?: unknown;
 }
 
 interface LSPNotification {
   jsonrpc: '2.0';
   method: string;
-  params?: any;
+  params?: unknown;
+}
+
+interface LSPDiagnostic {
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+  severity?: number;
+  code?: number | string;
+  source?: string;
+  message: string;
+}
+
+interface LSPLocation {
+  uri: string;
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+}
+
+interface LSPCompletionItem {
+  label: string;
+  kind?: number;
+  detail?: string;
+  documentation?: string | { kind: string; value: string };
+}
+
+interface LSPCompletionList {
+  isIncomplete: boolean;
+  items: LSPCompletionItem[];
 }
 
 // --- Language Server Configuration ---
@@ -87,10 +107,12 @@ const EXTENSION_TO_LANGUAGE: Record<string, string> = {
 class SimpleLSPClient {
   private process: ChildProcess | null = null;
   private buffer: string = '';
-  private messageQueue: any[] = [];
-  private pendingRequests: Map<string | number, (resolve: any, reject: any) => void> = new Map();
-  private diagnostics: Map<string, any[]> = new Map();
-  private initialized = false;
+  private pendingRequests: Map<string | number, (resolve: unknown, reject: unknown) => void> = new Map();
+  private diagnostics: Map<string, LSPDiagnostic[]> = new Map();
+
+  // Safety limits
+  private static readonly MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB
+  private static readonly MAX_DIAGNOSTICS_FILES = 100;
 
   constructor(
     public readonly language: string,
@@ -111,9 +133,10 @@ class SimpleLSPClient {
       });
 
       this.process.stdout?.on('data', (data) => this.handleData(data));
-      this.process.stderr?.on('data', (data) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      this.process.stderr?.on('data', (_data) => {
         // Log stderr but don't treat as fatal error unless process exits
-        // console.error(`LSP Stderr (${this.language}): ${data}`);
+        // console.error(`LSP Stderr (${this.language}): ${_data}`);
       });
 
       this.process.on('error', (err) => {
@@ -130,7 +153,6 @@ class SimpleLSPClient {
 
       // Initialize
       await this.initialize(rootPath);
-      this.initialized = true;
     } catch (error) {
        console.error(`Failed to start LSP server for ${this.language}:`, error);
        throw error;
@@ -142,11 +164,11 @@ class SimpleLSPClient {
       this.process.kill();
       this.process = null;
     }
-    this.pendingRequests.forEach((_, __, map) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    this.pendingRequests.forEach((_, __, _map) => {
        // specific implementation might reject all pending
     });
     this.pendingRequests.clear();
-    this.initialized = false;
   }
 
   isRunning(): boolean {
@@ -156,11 +178,18 @@ class SimpleLSPClient {
   private handleData(data: Buffer) {
     this.buffer += data.toString();
 
+    // Safety check: prevent buffer overflow
+    if (this.buffer.length > SimpleLSPClient.MAX_BUFFER_SIZE) {
+      console.error(`LSP buffer overflow for ${this.language}, clearing buffer`);
+      this.buffer = '';
+      return;
+    }
+
     while (true) {
       const lengthMatch = this.buffer.match(/Content-Length: (\d+)\r\n/);
       if (!lengthMatch) break;
 
-      const contentLength = parseInt(lengthMatch[1], 10);
+      const contentLength = parseInt(lengthMatch[1] ?? '0', 10);
       const headerEndIndex = this.buffer.indexOf('\r\n\r\n');
 
       if (headerEndIndex === -1) break;
@@ -182,14 +211,24 @@ class SimpleLSPClient {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleMessage(message: any) {
     if (message.method === 'textDocument/publishDiagnostics') {
-      const params = message.params;
+      const params = message.params as { uri: string; diagnostics: LSPDiagnostic[] };
+
+      // Safety check: limit number of tracked files
+      if (this.diagnostics.size >= SimpleLSPClient.MAX_DIAGNOSTICS_FILES && !this.diagnostics.has(params.uri)) {
+        // Remove oldest entry (first key in Map)
+        const firstKey = this.diagnostics.keys().next().value;
+        if (firstKey) {
+          this.diagnostics.delete(firstKey);
+        }
+      }
       this.diagnostics.set(params.uri, params.diagnostics);
     } else if (message.id !== undefined) {
       // Response
       if (this.pendingRequests.has(message.id)) {
-        const handler = this.pendingRequests.get(message.id); // handler is {resolve, reject} or just resolve?
+        // const handler = this.pendingRequests.get(message.id);
         // Logic: I stored `(resolve, reject) => void`? No, I stored a callback or object?
         // Let's correct how I store it.
       }
@@ -203,7 +242,7 @@ class SimpleLSPClient {
     }
   }
 
-  async sendRequest<T>(method: string, params: any): Promise<T> {
+  async sendRequest<T>(method: string, params: unknown): Promise<T> {
     if (!this.process) throw new Error('LSP server not running');
 
     const id = uuidv4();
@@ -219,6 +258,7 @@ class SimpleLSPClient {
     const header = `Content-Length: ${contentLength}\r\n\r\n`;
 
     return new Promise((resolve, reject) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.pendingRequests.set(id, (result: any, error: any) => {
         if (error) reject(error);
         else resolve(result);
@@ -241,7 +281,7 @@ class SimpleLSPClient {
     });
   }
 
-  sendNotification(method: string, params: any) {
+  sendNotification(method: string, params: unknown) {
     if (!this.process) return;
 
     const message: LSPNotification = {
@@ -287,7 +327,7 @@ class SimpleLSPClient {
     this.sendNotification('initialized', {});
   }
 
-  getStoredDiagnostics(uri: string): any[] {
+  getStoredDiagnostics(uri: string): LSPDiagnostic[] {
     return this.diagnostics.get(uri) || [];
   }
 }
@@ -418,8 +458,8 @@ Notes:
             default:
                 return `Unknown action: ${action}`;
         }
-    } catch (e: any) {
-        return `Error performing ${action}: ${e.message}`;
+    } catch (e: unknown) {
+        return `Error performing ${action}: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
 
@@ -441,7 +481,7 @@ Notes:
   }
 
   async gotoDefinition(client: SimpleLSPClient, uri: string, line: number, character: number): Promise<string> {
-      const result: any = await client.sendRequest('textDocument/definition', {
+      const result = await client.sendRequest<LSPLocation | LSPLocation[]>('textDocument/definition', {
           textDocument: { uri },
           position: { line, character }
       });
@@ -451,13 +491,13 @@ Notes:
       const locations = Array.isArray(result) ? result : [result];
       if (locations.length === 0) return 'No definition found.';
 
-      return locations.map((loc: any) => {
+      return locations.map((loc) => {
           return `Definition at: ${loc.uri} ${loc.range.start.line}:${loc.range.start.character}`;
       }).join('\n');
   }
 
   async findReferences(client: SimpleLSPClient, uri: string, line: number, character: number): Promise<string> {
-      const result: any = await client.sendRequest('textDocument/references', {
+      const result = await client.sendRequest<LSPLocation[]>('textDocument/references', {
           textDocument: { uri },
           position: { line, character },
           context: { includeDeclaration: true }
@@ -465,13 +505,14 @@ Notes:
 
       if (!result || !Array.isArray(result)) return 'No references found.';
 
-      return result.map((loc: any) => {
+      return result.map((loc) => {
           return `Reference at: ${loc.uri} ${loc.range.start.line}:${loc.range.start.character}`;
       }).join('\n');
   }
 
   async hover(client: SimpleLSPClient, uri: string, line: number, character: number): Promise<string> {
-      const result: any = await client.sendRequest('textDocument/hover', {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await client.sendRequest<any>('textDocument/hover', {
           textDocument: { uri },
           position: { line, character }
       });
@@ -482,6 +523,7 @@ Notes:
       if (typeof contents === 'object' && contents.kind === 'markdown') {
           contents = contents.value;
       } else if (Array.isArray(contents)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           contents = contents.map((c: any) => typeof c === 'string' ? c : c.value).join('\n');
       } else if (typeof contents === 'object' && contents.value) {
           contents = contents.value;
@@ -496,7 +538,7 @@ Notes:
   }
 
   async getCompletions(client: SimpleLSPClient, uri: string, line: number, character: number): Promise<string> {
-      const result: any = await client.sendRequest('textDocument/completion', {
+      const result = await client.sendRequest<LSPCompletionList | LSPCompletionItem[]>('textDocument/completion', {
           textDocument: { uri },
           position: { line, character }
       });
@@ -508,7 +550,7 @@ Notes:
       // Limit to top 20
       items = items.slice(0, 20);
 
-      return items.map((item: any) => {
+      return items.map((item) => {
           return `- ${item.label} (${item.kind ? this.getCompletionKind(item.kind) : 'unknown'})`;
       }).join('\n');
   }

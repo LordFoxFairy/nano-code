@@ -179,12 +179,12 @@ Each file can have multiple edit operations, and edits are applied in order.`;
         edits_applied: editsApplied,
         changes,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         file_path: fileEdit.file_path,
         success: false,
         edits_applied: 0,
-        error: error.message || String(error),
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }

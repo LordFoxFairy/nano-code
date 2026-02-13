@@ -10,7 +10,7 @@ marked.setOptions({
   // @ts-expect-error - marked-terminal types are sometimes tricky
   renderer: new TerminalRenderer({
     // @ts-expect-error - marked-terminal seems to have issues with type definitions for code
-    code: (code: any, lang: any) => {
+    code: (code: string, lang: string) => {
       try {
         return highlight(code, { language: lang || 'plaintext', ignoreIllegals: true });
       } catch (e) {
@@ -23,20 +23,30 @@ marked.setOptions({
   }),
 });
 
+// Define minimal Spinner interface if Ora type isn't available
+interface Spinner {
+  text: string;
+  color: string;
+  start(): Spinner;
+  succeed(text?: string): Spinner;
+  fail(text?: string): Spinner;
+  stop(): Spinner;
+}
+
 export interface RenderAction {
   type: 'text' | 'tool_call_start' | 'tool_result' | 'thinking' | 'error' | 'user_input';
   content?: string;
   toolName?: string;
-  args?: any;
+  args?: Record<string, unknown>;
   success?: boolean;
   result?: string;
 }
 
 export class StreamingRenderer {
-  private spinner: any;
+  private spinner: Spinner | null = null;
   private currentTool: string | null = null;
 
-  constructor(private outputStream: any = process.stdout) {}
+  constructor(private outputStream: NodeJS.WriteStream = process.stdout) {}
 
   render(action: RenderAction) {
     if (this.spinner && action.type !== 'tool_result') {
@@ -84,7 +94,7 @@ export class StreamingRenderer {
           text: `${chalk.bold('Executing')} ${chalk.cyan(this.currentTool)}...`,
           spinner: 'dots',
           color: 'cyan',
-        }).start();
+        }).start() as unknown as Spinner;
 
         // If we have args, maybe show them nicely?
         if (action.args) {

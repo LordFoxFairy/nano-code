@@ -6,7 +6,7 @@ import { formatToolArgs } from '../utils.js';
 // HITL types from LangGraph interrupts
 interface HITLActionRequest {
   name: string;
-  args: Record<string, any>;
+  args: Record<string, unknown>;
   description?: string;
 }
 
@@ -18,10 +18,10 @@ interface HITLRequest {
 // Legacy single-action props (for backwards compatibility)
 interface LegacyHITLApprovalProps {
   toolName: string;
-  toolArgs: any;
+  toolArgs: unknown;
   onApprove: () => void;
   onReject: (message?: string) => void;
-  onEdit?: (editedArgs: Record<string, any>) => void;
+  onEdit?: (editedArgs: Record<string, unknown>) => void;
 }
 
 // New multi-action props (for LangGraph interrupts)
@@ -29,7 +29,7 @@ interface MultiActionHITLApprovalProps {
   request: HITLRequest;
   onApprove: () => void;
   onReject: (message?: string) => void;
-  onEdit?: (editedArgs: Record<string, any>) => void;
+  onEdit?: (editedArgs: Record<string, unknown>) => void;
 }
 
 type HITLApprovalProps = LegacyHITLApprovalProps | MultiActionHITLApprovalProps;
@@ -45,7 +45,7 @@ export const HITLApproval: React.FC<HITLApprovalProps> = (props) => {
   // Normalize to array of actions
   const actions: HITLActionRequest[] = isMultiAction(props)
     ? props.request.actionRequests
-    : [{ name: props.toolName, args: props.toolArgs }];
+    : [{ name: props.toolName, args: (props.toolArgs as Record<string, unknown>) || {} }];
 
   const { onApprove, onReject } = props;
 
@@ -68,9 +68,14 @@ export const HITLApproval: React.FC<HITLApprovalProps> = (props) => {
     const { name: toolName, args: toolArgs, description } = action;
     const borderColor = isSelected ? theme.primary : theme.border.default;
 
+    const argObj = toolArgs as Record<string, unknown>;
+
     // Special formatting for Bash/Exec tools
     if (toolName === 'Bash' || toolName === 'execute' || toolName === 'RunCommand') {
-      const cmd = toolArgs.command || toolArgs.cmd || JSON.stringify(toolArgs);
+      const cmd =
+        (typeof argObj.command === 'string' ? argObj.command : '') ||
+        (typeof argObj.cmd === 'string' ? argObj.cmd : '') ||
+        JSON.stringify(toolArgs);
       return (
         <Box
           flexDirection="column"
@@ -88,7 +93,7 @@ export const HITLApproval: React.FC<HITLApprovalProps> = (props) => {
 
     // Write file details
     if (toolName === 'Write' || toolName === 'write_file') {
-      const content = toolArgs.content || '';
+      const content = typeof argObj.content === 'string' ? argObj.content : '';
       const preview =
         content.length > 300 ? content.substring(0, 300) + '... (truncated)' : content;
 
@@ -102,7 +107,7 @@ export const HITLApproval: React.FC<HITLApprovalProps> = (props) => {
         >
           {description && <Text color={theme.text.dim}>{description}</Text>}
           <Text color={theme.text.dim}>Writing to: </Text>
-          <Text bold>{toolArgs.file_path}</Text>
+          <Text bold>{String(argObj.file_path || '')}</Text>
           <Box marginTop={1} padding={1} borderStyle="round" borderColor={theme.border.default}>
             <Text color={theme.text.dim}>{preview}</Text>
           </Box>
@@ -113,7 +118,10 @@ export const HITLApproval: React.FC<HITLApprovalProps> = (props) => {
     // Edit file details
     if (toolName === 'Edit' || toolName === 'edit_file') {
       // If we have old/new strings
-      if (toolArgs.old_string && toolArgs.new_string) {
+      if (
+        typeof argObj.old_string === 'string' &&
+        typeof argObj.new_string === 'string'
+      ) {
         return (
           <Box
             flexDirection="column"
@@ -123,19 +131,19 @@ export const HITLApproval: React.FC<HITLApprovalProps> = (props) => {
             borderColor={borderColor}
           >
             {description && <Text color={theme.text.dim}>{description}</Text>}
-            <Text color={theme.text.dim}>Editing: {toolArgs.file_path}</Text>
+            <Text color={theme.text.dim}>Editing: {String(argObj.file_path || '')}</Text>
             <Box flexDirection="column" marginTop={1}>
               <Text color={theme.error} strikethrough>
                 -{' '}
-                {toolArgs.old_string.length > 100
-                  ? toolArgs.old_string.substring(0, 100) + '...'
-                  : toolArgs.old_string}
+                {argObj.old_string.length > 100
+                  ? argObj.old_string.substring(0, 100) + '...'
+                  : argObj.old_string}
               </Text>
               <Text color={theme.success}>
                 +{' '}
-                {toolArgs.new_string.length > 100
-                  ? toolArgs.new_string.substring(0, 100) + '...'
-                  : toolArgs.new_string}
+                {argObj.new_string.length > 100
+                  ? argObj.new_string.substring(0, 100) + '...'
+                  : argObj.new_string}
               </Text>
             </Box>
           </Box>

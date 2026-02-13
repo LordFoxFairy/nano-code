@@ -6,7 +6,7 @@ import { formatToolArgs } from '../utils.js';
 
 interface ToolExecutionProps {
   toolName: string;
-  args?: any;
+  args?: unknown;
   result?: string;
   isLoading?: boolean;
   isError?: boolean;

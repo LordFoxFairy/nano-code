@@ -37,7 +37,7 @@ export class LocalSandbox extends BaseSandbox {
         await fs.ensureDir(path.dirname(fullPath));
         await fs.outputFile(fullPath, content);
         responses.push({ path: relativePath, error: null });
-      } catch (e: any) {
+      } catch (e: unknown) {
         // Map generic errors to permission_denied as closest match
         responses.push({ path: relativePath, error: 'permission_denied' });
       }
@@ -71,7 +71,7 @@ export class LocalSandbox extends BaseSandbox {
         } else {
           results.push({ path: p, content: null, error: 'file_not_found' });
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         results.push({ path: p, content: null, error: 'permission_denied' });
       }
     }

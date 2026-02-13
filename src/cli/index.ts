@@ -55,7 +55,7 @@ export async function main() {
     // 3. Create Agent
     const factory = new AgentFactory({
       config,
-      mode: mode as any,
+      mode: mode as import('../core/config/types.js').RouterMode,
       cwd: process.cwd(),
       hitl: config.settings?.interruptOn ? true : true, // Default to true if not specified
     });
@@ -64,7 +64,8 @@ export async function main() {
     // 4. Start UI
     const { waitUntilExit } = render(React.createElement(App, { agent, session }));
     await waitUntilExit();
-  } catch (error: any) {
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
     console.error(chalk.red('Fatal Error:'), error.message);
     process.exit(1);
   }

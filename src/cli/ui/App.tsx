@@ -57,7 +57,7 @@ interface Message {
   role: 'user' | 'assistant' | 'tool' | 'system';
   content: string;
   toolName?: string;
-  toolArgs?: any;
+  toolArgs?: unknown;
   isError?: boolean;
 }
 
@@ -484,7 +484,7 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
             }));
             handleHITLDecision(decisions);
           }}
-          onEdit={(editedArgs: Record<string, any>) => {
+          onEdit={(editedArgs: Record<string, unknown>) => {
             const decisions: HITLDecision[] = pendingHITL.actionRequests.map(() => ({
               type: 'edit' as const,
               message: JSON.stringify(editedArgs),

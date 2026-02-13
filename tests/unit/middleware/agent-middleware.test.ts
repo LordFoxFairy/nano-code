@@ -87,7 +87,8 @@ describe('Agent Middleware', () => {
         runtime: {},
       };
 
-      await middleware.wrapModelCall!(mockRequest as any, mockHandler);
+      // @ts-expect-error Mocking partial request
+      await middleware.wrapModelCall!(mockRequest, mockHandler);
 
       expect(mockHandler).toHaveBeenCalled();
       expect(onUsageUpdateCallback).toHaveBeenCalled();
@@ -116,7 +117,8 @@ describe('Agent Middleware', () => {
       };
 
       const mockHandler = vi.fn().mockResolvedValue(mockResponse);
-      await middleware.wrapModelCall!({ messages: [], tools: [], state: { messages: [] }, runtime: {} } as any, mockHandler);
+      // @ts-expect-error Mocking partial request
+      await middleware.wrapModelCall!({ messages: [], tools: [], state: { messages: [] }, runtime: {} }, mockHandler);
 
       const stats = getUsageStats();
       expect(stats.cacheReadTokens).toBe(80);
@@ -133,8 +135,9 @@ describe('Agent Middleware', () => {
       const mockMessages = [new HumanMessage({ content: 'test' })];
       const mockHandler = vi.fn().mockResolvedValue(new AIMessage({ content: 'response' }));
 
+      // @ts-expect-error Mocking partial request
       await middleware.wrapModelCall!(
-        { messages: mockMessages, tools: [], state: { messages: [] }, runtime: {} } as any,
+        { messages: mockMessages, tools: [], state: { messages: [] }, runtime: {} },
         mockHandler,
       );
 
@@ -155,8 +158,9 @@ describe('Agent Middleware', () => {
       };
 
       const mockHandler = vi.fn().mockResolvedValue(mockResponse);
+      // @ts-expect-error Mocking partial request
       await middleware.wrapModelCall!(
-        { messages: [], tools: [], state: { messages: [] }, runtime: {} } as any,
+        { messages: [], tools: [], state: { messages: [] }, runtime: {} },
         mockHandler,
       );
 
@@ -180,7 +184,8 @@ describe('Agent Middleware', () => {
         runtime: {},
       };
 
-      await middleware.wrapToolCall!(mockRequest as any, mockHandler);
+      // @ts-expect-error Mocking partial request
+      await middleware.wrapToolCall!(mockRequest, mockHandler);
 
       expect(mockHandler).toHaveBeenCalled();
       expect(onToolCall).toHaveBeenCalledWith('TestTool', { arg1: 'value' }, 'tool result');
@@ -257,8 +262,9 @@ describe('Agent Middleware', () => {
       };
 
       const mockHandler = vi.fn().mockResolvedValue(mockResponse);
+      // @ts-expect-error Mocking partial request
       await middleware.wrapModelCall!(
-        { messages: [], tools: [], state: { messages: [] }, runtime: {} } as any,
+        { messages: [], tools: [], state: { messages: [] }, runtime: {} },
         mockHandler,
       );
 
@@ -287,8 +293,9 @@ describe('Agent Middleware', () => {
       };
 
       const mockHandler = vi.fn().mockResolvedValue(mockResponse);
+      // @ts-expect-error Mocking partial request
       await middleware.wrapModelCall!(
-        { messages: [], tools: [], state: { messages: [] }, runtime: {} } as any,
+        { messages: [], tools: [], state: { messages: [] }, runtime: {} },
         mockHandler,
       );
 
@@ -312,8 +319,9 @@ describe('Agent Middleware', () => {
         total_tokens: 1500,
       };
 
+      // @ts-expect-error Mocking partial request
       await middleware.wrapModelCall!(
-        { messages: [], tools: [], state: { messages: [] }, runtime: {} } as any,
+        { messages: [], tools: [], state: { messages: [] }, runtime: {} },
         vi.fn().mockResolvedValue(mockResponse),
       );
 
@@ -377,8 +385,9 @@ describe('Agent Middleware', () => {
         total_tokens: 150,
       };
 
+      // @ts-expect-error Mocking partial request
       await middleware.wrapModelCall!(
-        { messages: [], tools: [], state: { messages: [] }, runtime: {} } as any,
+        { messages: [], tools: [], state: { messages: [] }, runtime: {} },
         vi.fn().mockResolvedValue(mockResponse),
       );
 
@@ -388,8 +397,9 @@ describe('Agent Middleware', () => {
       unsubscribe();
       resetUsageStats();
 
+      // @ts-expect-error Mocking partial request
       await middleware.wrapModelCall!(
-        { messages: [], tools: [], state: { messages: [] }, runtime: {} } as any,
+        { messages: [], tools: [], state: { messages: [] }, runtime: {} },
         vi.fn().mockResolvedValue(mockResponse),
       );
 
@@ -418,7 +428,7 @@ describe('Agent Middleware', () => {
     it('should handle array content', async () => {
       const messages = [
         new HumanMessage({
-          content: [{ type: 'text', text: 'Hello world' }] as any,
+          content: [{ type: 'text', text: 'Hello world' }],
         }),
       ];
 
