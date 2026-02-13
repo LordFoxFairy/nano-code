@@ -53,11 +53,12 @@ async function runCommand(
       success: true,
       output: stdout || stderr,
     };
-  } catch (error: any) {
+  } catch (err: unknown) {
+    const error = err as { stdout?: string; message?: string };
     return {
       success: false,
       output: error.stdout || '',
-      error: error.message || String(error),
+      error: error.message || String(err),
     };
   }
 }

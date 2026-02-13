@@ -23,3 +23,17 @@ export {
   formatAllowedTools,
   parseAllowedTools,
 } from './tool-restriction.js';
+
+export {
+  ToolCallLogEntry,
+  PreToolUseHook,
+  PostToolUseHook,
+  ToolHooksConfig,
+  getToolHooksState,
+  createToolHooksMiddleware,
+  securityValidationHook,
+  createRateLimitHook,
+  truncateResultHook,
+  addMetadataHook,
+  createDefaultToolHooksMiddleware,
+} from './tool-hooks.js';
