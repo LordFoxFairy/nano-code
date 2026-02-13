@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Box, useApp, useInput } from 'ink';
 import { Command } from '@langchain/langgraph';
 import { WelcomeScreen } from './components/WelcomeScreen.js';
@@ -17,7 +17,7 @@ import { NanoCodeAgent } from '../../agent/factory.js';
 // HITL interrupt types from deepagents/langchain
 interface HITLActionRequest {
   name: string;
-  args: Record<string, any>;
+  args: Record<string, unknown>;
   description?: string;
 }
 
@@ -37,6 +37,14 @@ interface HITLDecision {
 
 interface HITLResponse {
   decisions: HITLDecision[];
+}
+
+/**
+ * Stream chunk from agent
+ */
+interface StreamChunk {
+  messages?: unknown[];
+  __interrupt__?: HITLInterrupt[];
 }
 
 interface AppProps {
@@ -65,12 +73,26 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
   });
   const [pendingHITL, setPendingHITL] = useState<HITLRequest | null>(null);
   const [hitlConfig, setHitlConfig] = useState<{ thread_id: string } | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Handle Ctrl+C
+  // Handle Ctrl+C - abort streaming or exit
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
-      if (isStreaming) {
-        // TODO: Abort streaming
+      if (isStreaming && abortControllerRef.current) {
+        // Abort the current streaming operation
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+        setIsStreaming(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'system',
+            content: 'Operation cancelled by user.',
+            isError: false,
+          },
+        ]);
+        return; // Don't exit, just cancel
       }
       exit();
     }
@@ -83,6 +105,10 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
     setPendingHITL(null);
     setIsStreaming(true);
 
+    // Create abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
       const response: HITLResponse = { decisions };
       const resumeCommand = new Command({ resume: response });
@@ -90,16 +116,18 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
       const stream = await agent.stream(resumeCommand, {
         configurable: hitlConfig,
         streamMode: 'values',
+        signal: abortController.signal,
       });
 
-      for await (const chunk of stream) {
+      for await (const rawChunk of stream) {
+        const chunk = rawChunk as StreamChunk;
         // Process stream chunks same as handleSubmit
         if (chunk.messages && Array.isArray(chunk.messages)) {
           const agentMessages = chunk.messages;
           const uiMessages: Message[] = [];
 
           for (const msg of agentMessages) {
-            const parsed = parseMessage(msg);
+            const parsed = parseMessage(msg as import('../message-utils.js').MessageLike);
 
             if (parsed.role === 'user') {
               uiMessages.push({
@@ -139,8 +167,8 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
         }
 
         // Check for another HITL interrupt
-        if (chunk.__interrupt__) {
-          const interrupt = chunk.__interrupt__[0] as HITLInterrupt;
+        if (chunk.__interrupt__ && chunk.__interrupt__[0]) {
+          const interrupt = chunk.__interrupt__[0];
           if (interrupt.value) {
             setPendingHITL(interrupt.value);
             setIsStreaming(false);
@@ -148,17 +176,22 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
           }
         }
       }
-    } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'system',
-          content: `Error: ${err.message}`,
-          isError: true,
-        },
-      ]);
+    } catch (err: unknown) {
+      const error = err as Error;
+      // Don't show error message if aborted by user
+      if (error.name !== 'AbortError') {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'system',
+            content: `Error: ${error.message}`,
+            isError: true,
+          },
+        ]);
+      }
     } finally {
+      abortControllerRef.current = null;
       setIsStreaming(false);
       setHitlConfig(null);
     }
@@ -251,21 +284,27 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
       const threadConfig = { thread_id: session.threadId };
       setHitlConfig(threadConfig);
 
+      // Create abort controller for this request
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       const stream = await agent.stream(
         { messages: [{ role: 'user', content: value }] },
         {
           configurable: threadConfig,
           streamMode: 'values',
+          signal: abortController.signal,
         },
       );
 
-      for await (const chunk of stream) {
+      for await (const rawChunk of stream) {
+        const chunk = rawChunk as StreamChunk;
         if (chunk.messages && Array.isArray(chunk.messages)) {
           const agentMessages = chunk.messages;
           const uiMessages: Message[] = [];
 
           for (const msg of agentMessages) {
-            const parsed = parseMessage(msg);
+            const parsed = parseMessage(msg as import('../message-utils.js').MessageLike);
 
             if (parsed.role === 'user') {
               uiMessages.push({
@@ -305,8 +344,8 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
         }
 
         // Check for HITL interrupt
-        if (chunk.__interrupt__) {
-          const interrupt = chunk.__interrupt__[0] as HITLInterrupt;
+        if (chunk.__interrupt__ && chunk.__interrupt__[0]) {
+          const interrupt = chunk.__interrupt__[0];
           if (interrupt.value) {
             setPendingHITL(interrupt.value);
             setIsStreaming(false);
@@ -314,17 +353,22 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
           }
         }
       }
-    } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'system',
-          content: `Error: ${err.message}`,
-          isError: true,
-        },
-      ]);
+    } catch (err: unknown) {
+      const error = err as Error;
+      // Don't show error message if aborted by user
+      if (error.name !== 'AbortError') {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'system',
+            content: `Error: ${error.message}`,
+            isError: true,
+          },
+        ]);
+      }
     } finally {
+      abortControllerRef.current = null;
       setIsStreaming(false);
     }
   };

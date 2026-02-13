@@ -11,6 +11,7 @@
  */
 
 import { existsSync } from 'fs';
+import { StructuredTool } from '@langchain/core/tools';
 import { createDeepAgent } from 'deepagents';
 import { MemorySaver } from '@langchain/langgraph';
 import type { NanoConfig, RouterMode } from '../core/config/types.js';
@@ -18,6 +19,23 @@ import { ModelResolver } from '../core/llm/resolver.js';
 import { LocalSandbox } from './sandbox.js';
 import { getNanoCodeTools } from './tools.js';
 import { loadSubagents } from '../core/agent/loader.js';
+import { ToolRegistry, initializeGlobalToolRegistry } from './tool-registry.js';
+import {
+  createToolRestrictionMiddleware,
+  filterTools,
+  type ToolRestrictionConfig,
+} from '../middleware/tool-restriction.js';
+
+/**
+ * Loaded subagent from our loader
+ */
+interface LoadedSubAgent {
+  name: string;
+  description: string;
+  systemPrompt?: string;
+  model?: string;
+  tools?: string[];
+}
 
 /**
  * Default tools requiring HITL approval
@@ -43,36 +61,76 @@ export interface AgentFactoryOptions {
   memory?: string[];
   skills?: string[];
   hitl?: boolean;
+  /** Restrict tools to only these names */
+  allowedTools?: string[];
+  /** Throw error instead of returning message when blocked */
+  throwOnBlockedTool?: boolean;
+}
+
+/**
+ * SubAgent configuration for deepagents
+ */
+interface DeepAgentSubAgent {
+  name: string;
+  description: string;
+  systemPrompt?: string;
+  model?: string;
+  tools?: StructuredTool[];
+}
+
+/**
+ * Agent input type
+ */
+export interface AgentInput {
+  messages: Array<{ role: string; content: string }>;
+}
+
+/**
+ * Agent config type
+ */
+export interface AgentConfig {
+  configurable?: Record<string, unknown>;
+  streamMode?: 'values' | 'messages' | 'updates';
+  signal?: AbortSignal;
+}
+
+/**
+ * Deep agent interface (from deepagents)
+ */
+interface DeepAgent {
+  stream(input: AgentInput | unknown, config: AgentConfig): AsyncIterable<unknown>;
+  invoke(input: AgentInput | unknown, config: AgentConfig): Promise<unknown>;
 }
 
 /**
  * Wrapper class for the agent with extended capabilities
  */
 export class NanoCodeAgent {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly agent: any;
+  private readonly agent: DeepAgent;
+  private readonly toolRegistry: ToolRegistry;
 
   constructor(
-    agent: any,
+    agent: DeepAgent,
     private readonly context: {
       mode: RouterMode;
+      toolRegistry: ToolRegistry;
     },
   ) {
     this.agent = agent;
+    this.toolRegistry = context.toolRegistry;
   }
 
   /**
    * Stream agent responses
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  stream(input: any, config: any): any {
+  stream(input: AgentInput | unknown, config: AgentConfig): AsyncIterable<unknown> {
     return this.agent.stream(input, config);
   }
 
   /**
    * Invoke agent (non-streaming)
    */
-  invoke(input: any, config: any) {
+  invoke(input: AgentInput | unknown, config: AgentConfig): Promise<unknown> {
     return this.agent.invoke(input, config);
   }
 
@@ -81,6 +139,13 @@ export class NanoCodeAgent {
    */
   getMode(): RouterMode {
     return this.context.mode;
+  }
+
+  /**
+   * Get the tool registry
+   */
+  getToolRegistry(): ToolRegistry {
+    return this.toolRegistry;
   }
 }
 
@@ -109,57 +174,98 @@ export class AgentFactory {
    * Build the agent
    */
   async build(): Promise<NanoCodeAgent> {
-    const { config, mode, cwd, hitl } = this.options;
+    const { config, mode, cwd, hitl, allowedTools, throwOnBlockedTool } = this.options;
 
     const model = ModelResolver.resolveByMode(config, mode);
     const backend = new LocalSandbox(cwd);
-    const tools = getNanoCodeTools();
+    let tools = getNanoCodeTools();
+
+    // Initialize tool registry with all available tools
+    const toolRegistry = initializeGlobalToolRegistry(tools);
+
+    // Apply tool restrictions if specified
+    if (allowedTools && allowedTools.length > 0) {
+      tools = filterTools(tools, allowedTools);
+    }
 
     const interruptOn =
       hitl === false ? undefined : config.settings?.interruptOn || DEFAULT_INTERRUPT_CONFIG;
 
-    // Load subagents from skills directories
-    const skillsDirs = this.options.skills || ['.agents/skills/'];
-    let subagents: any[] = [];
-
-    try {
-      // Find the first valid skills directory to load agents from
-      // In the future we might want to load from all providing directories
-      const validSkillsDirs = skillsDirs.filter((d) => existsSync(d));
-      if (validSkillsDirs.length > 0) {
-        // Load subagents from all skill directories
-        const loadedSubagents = await Promise.all(validSkillsDirs.map((dir) => loadSubagents(dir)));
-        // Transform NanoCode SubAgent format to deepagents SubAgent format
-        // deepagents expects tools?: StructuredTool[] but our loader outputs tools: string[]
-        // Since we can't resolve string names to tool instances at this layer,
-        // we omit the tools field and let subagents use defaultTools from deepagents
-        subagents = loadedSubagents.flat().map((agent) => ({
-          name: agent.name,
-          description: agent.description,
-          systemPrompt: agent.systemPrompt,
-          model: agent.model,
-          // Don't pass tools - deepagents expects StructuredTool[] not string[]
-          // Subagents will inherit defaultTools from deepagents
-        }));
-      }
-    } catch (error) {
-      console.warn('Failed to load subagents:', error);
-      // Continue without subagents rather than crashing
+    // Build middleware configuration
+    const middlewareConfig: { wrapToolCall?: ReturnType<typeof createToolRestrictionMiddleware> } =
+      {};
+    if (allowedTools && allowedTools.length > 0) {
+      const restrictionConfig: ToolRestrictionConfig = {
+        allowedTools,
+        throwOnBlocked: throwOnBlockedTool,
+      };
+      middlewareConfig.wrapToolCall = createToolRestrictionMiddleware(restrictionConfig);
     }
 
-    const agent = createDeepAgent({
+    // Load subagents from skills directories
+    const skillsDirs = this.options.skills || ['.agents/skills/'];
+    let subagents: DeepAgentSubAgent[] = [];
+
+    try {
+      const validSkillsDirs = skillsDirs.filter((d) => existsSync(d));
+      if (validSkillsDirs.length > 0) {
+        const loadedSubagents = await Promise.all(validSkillsDirs.map((dir) => loadSubagents(dir)));
+        subagents = this.transformSubagents(loadedSubagents.flat(), toolRegistry);
+      }
+    } catch (error) {
+      // Log warning but continue without subagents
+      if (process.env.NODE_ENV !== 'test') {
+        console.warn('Failed to load subagents:', error);
+      }
+    }
+
+    const agentConfig = {
       model,
       backend,
-      tools: tools as any[],
+      tools,
       skills: this.options.skills || ['.agents/skills/'],
       memory: this.options.memory || ['.agents/AGENTS.md'],
       subagents,
-      interruptOn: interruptOn as any,
+      interruptOn,
       checkpointer: new MemorySaver(),
-    });
+      ...middlewareConfig,
+    };
 
-    return new NanoCodeAgent(agent, {
+    const agent = createDeepAgent(agentConfig as Parameters<typeof createDeepAgent>[0]);
+
+    return new NanoCodeAgent(agent as unknown as DeepAgent, {
       mode,
+      toolRegistry,
+    });
+  }
+
+  /**
+   * Transform loaded subagents to deepagents format with resolved tools
+   */
+  private transformSubagents(
+    loadedSubagents: LoadedSubAgent[],
+    toolRegistry: ToolRegistry,
+  ): DeepAgentSubAgent[] {
+    return loadedSubagents.map((agent) => {
+      const subagent: DeepAgentSubAgent = {
+        name: agent.name,
+        description: agent.description,
+        systemPrompt: agent.systemPrompt,
+        model: agent.model,
+      };
+
+      // Resolve tool names to StructuredTool instances using the registry
+      if (agent.tools && agent.tools.length > 0) {
+        const { resolved, missing } = toolRegistry.resolveTools(agent.tools);
+        if (resolved.length > 0) {
+          subagent.tools = resolved;
+        }
+        if (missing.length > 0 && process.env.NODE_ENV !== 'test') {
+          console.warn(`Subagent '${agent.name}' has unknown tools: ${missing.join(', ')}`);
+        }
+      }
+
+      return subagent;
     });
   }
 }

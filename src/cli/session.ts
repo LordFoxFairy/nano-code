@@ -95,6 +95,13 @@ export class Session {
     this.updatedAt = Date.now();
   }
 
+  /**
+   * Get conversation history
+   */
+  getHistory(): Message[] {
+    return [...this.messages];
+  }
+
   setMode(mode: string): void {
     this.mode = mode;
     this.updatedAt = Date.now();

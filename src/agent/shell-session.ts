@@ -1,18 +1,20 @@
 import path from 'path';
 import fs from 'fs-extra';
 import { execa } from 'execa';
+import { checkCommandSecurity, type SecurityCheckResult } from './security.js';
 
 export interface ExecuteResult {
   code: number;
   stdout: string;
   stderr: string;
+  securityWarning?: string;
 }
 
 export class ShellSession {
   private currentCwd: string;
   private env: Record<string, string>;
 
-  constructor(initialCwd: string) {
+  constructor(initialCwd: string, _options?: { strictSecurity?: boolean }) {
     this.currentCwd = path.resolve(initialCwd);
     this.env = Object.entries(process.env).reduce(
       (acc, [k, v]) => {
@@ -25,9 +27,17 @@ export class ShellSession {
 
   // Execute command and maintain CWD state
   async execute(command: string, timeout: number = 120000): Promise<ExecuteResult> {
-    if (this.isDangerous(command)) {
-      throw new Error(`Dangerous command execution blocked: ${command}`);
+    const securityResult = this.checkSecurity(command);
+
+    if (!securityResult.allowed) {
+      throw new Error(
+        `Security: ${securityResult.reason} (category: ${securityResult.category}, pattern: ${securityResult.pattern})`,
+      );
     }
+
+    // For warnings, continue but include in result
+    const securityWarning =
+      securityResult.severity === 'warn' ? securityResult.reason : undefined;
 
     // Use a unique delimiter to capture PWD after execution
     const delimiter = `__NANO_CWD_${Date.now()}__`;
@@ -78,12 +88,14 @@ export class ShellSession {
         code: exitCode ?? 1, // Fallback exitCode if undefined (e.g. signal killed)
         stdout: output,
         stderr: stderr,
+        securityWarning,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         code: 1,
         stdout: '',
-        stderr: error.message,
+        stderr: errorMessage,
       };
     }
   }
@@ -93,16 +105,19 @@ export class ShellSession {
     return this.currentCwd;
   }
 
-  // Basic security check
-  private isDangerous(command: string): boolean {
-    const dangerousPatterns = [
-      'rm -rf /',
-      'rm -fr /',
-      ':(){:|:&};:', // fork bomb
-      '> /dev/sda',
-      'mkfs',
-    ];
+  /**
+   * Comprehensive security check using the security module
+   * Returns detailed information about the security assessment
+   */
+  private checkSecurity(command: string): SecurityCheckResult {
+    return checkCommandSecurity(command);
+  }
 
-    return dangerousPatterns.some((p) => command.includes(p));
+  /**
+   * Quick check if command is blocked (for backward compatibility)
+   */
+  isDangerous(command: string): boolean {
+    const result = this.checkSecurity(command);
+    return result.severity === 'block';
   }
 }

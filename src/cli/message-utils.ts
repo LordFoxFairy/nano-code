@@ -2,10 +2,55 @@ import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from '@langchain/
 
 export type MessageRole = 'user' | 'assistant' | 'tool' | 'system' | 'unknown';
 
+/**
+ * Tool call structure
+ */
+export interface ToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  id?: string;
+}
+
+/**
+ * Content part in a message (for multimodal/structured content)
+ */
+export interface ContentPart {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: unknown;
+  id?: string;
+}
+
+/**
+ * Message-like object that can be parsed
+ * Supports various formats: LangChain, OpenAI, custom
+ */
+export interface MessageLike {
+  content?: string | ContentPart[];
+  role?: string;
+  type?: string;
+  name?: string;
+  id?: string | string[];
+  is_error?: boolean;
+  tool_calls?: ToolCall[];
+  additional_kwargs?: {
+    tool_calls?: ToolCall[];
+  };
+  kwargs?: {
+    content?: string | ContentPart[];
+    tool_calls?: ToolCall[];
+    id?: string;
+    name?: string;
+    is_error?: boolean;
+  };
+  constructor?: { name?: string };
+}
+
 export interface ParsedMessage {
   role: MessageRole;
   content: string;
-  toolCalls?: any[];
+  toolCalls?: ToolCall[];
   id: string;
   name?: string;
   isError?: boolean;
@@ -14,7 +59,7 @@ export interface ParsedMessage {
 /**
  * Detects the role of a message
  */
-export function getMessageRole(msg: any): MessageRole {
+export function getMessageRole(msg: MessageLike): MessageRole {
   // 1. Check strict LangChain instances
   if (msg instanceof HumanMessage) return 'user';
   if (msg instanceof AIMessage) return 'assistant';
@@ -62,7 +107,7 @@ export function getMessageRole(msg: any): MessageRole {
 /**
  * Extracts text content from a message
  */
-export function getMessageContent(msg: any): string {
+export function getMessageContent(msg: MessageLike): string {
   let content = msg.content;
 
   // Handle kwargs fallback (serialized format)
@@ -78,8 +123,8 @@ export function getMessageContent(msg: any): string {
   // Handle array content (multimodal or structured)
   if (Array.isArray(content)) {
     return content
-      .filter((part: any) => part.type === 'text')
-      .map((part: any) => part.text || '')
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text || '')
       .join('');
   }
 
@@ -89,7 +134,7 @@ export function getMessageContent(msg: any): string {
 /**
  * Extracts tool calls from a message
  */
-export function getToolCalls(msg: any): any[] {
+export function getToolCalls(msg: MessageLike): ToolCall[] {
   // 1. Standard tool_calls property
   if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
     return msg.tool_calls;
@@ -108,11 +153,11 @@ export function getToolCalls(msg: any): any[] {
   // 4. Content array with tool_use type (Anthropic sometimes uses this)
   const content = msg.content || (msg.kwargs && msg.kwargs.content);
   if (Array.isArray(content)) {
-    const toolUses = content
-      .filter((part: any) => part.type === 'tool_use')
-      .map((part: any) => ({
-        name: part.name,
-        args: part.input || part.args,
+    const toolUses = (content as ContentPart[])
+      .filter((part) => part.type === 'tool_use')
+      .map((part) => ({
+        name: part.name || '',
+        args: (part.input as Record<string, unknown>) || {},
         id: part.id,
       }));
 
@@ -126,10 +171,10 @@ export function getToolCalls(msg: any): any[] {
  * Generates a unique ID for a message
  */
 export function getMessageId(
-  msg: any,
+  msg: MessageLike,
   role: string,
   content: string,
-  toolCalls: any[] = [],
+  toolCalls: ToolCall[] = [],
 ): string {
   if (typeof msg.id === 'string') {
     return msg.id;
@@ -154,7 +199,7 @@ export function getMessageId(
 /**
  * Parses any message object into a standardized format
  */
-export function parseMessage(msg: any): ParsedMessage {
+export function parseMessage(msg: MessageLike): ParsedMessage {
   const role = getMessageRole(msg);
   const content = getMessageContent(msg);
   const toolCalls = getToolCalls(msg);

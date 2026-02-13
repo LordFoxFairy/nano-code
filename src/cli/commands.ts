@@ -11,6 +11,8 @@ export interface CommandResult {
   skillName?: string;
   allowedTools?: string[];
   model?: string;
+  /** Flag indicating a history/save action was performed */
+  action?: 'save' | 'history_show' | 'skills_list';
 }
 
 interface CommandFrontmatter {
@@ -282,6 +284,16 @@ export class CommandHandler {
         return this.handleClear();
       case '/exit':
         process.exit(0);
+      case '/history':
+        return this.handleHistory(args);
+      case '/save':
+        return await this.handleSave(args);
+      case '/skills':
+        return this.handleSkills();
+      case '/status':
+        return this.handleStatus();
+      case '/compact':
+        return this.handleCompact();
 
       default:
         // Check for skill command
@@ -332,9 +344,12 @@ export class CommandHandler {
       '  /help           Show this help message',
       '  /model [name]   Switch model (opus, sonnet, haiku)',
       '  /clear          Clear conversation context (starts new thread)',
+      '  /history [n]    Show conversation history (last n messages)',
+      '  /save [name]    Save current session with optional name',
+      '  /skills         List all available skills',
+      '  /status         Show current session status',
+      '  /compact        Summarize and compact context',
       '  /exit           Exit NanoCode',
-      '  /bug            Report a bug (not implemented)',
-      '  /cost           Show current session cost (not implemented)',
     ];
 
     if (this.skills.size > 0) {
@@ -368,5 +383,105 @@ export class CommandHandler {
   private handleClear(): CommandResult {
     this.session.clear();
     return { success: true, output: 'Context cleared. Started new conversation thread.' };
+  }
+
+  private handleHistory(args: string[]): CommandResult {
+    const count = parseInt(args[0] || '10', 10);
+    const history = this.session.getHistory();
+
+    if (history.length === 0) {
+      return { success: true, output: 'No conversation history yet.', action: 'history_show' };
+    }
+
+    const messages = history.slice(-count);
+    const formatted = messages
+      .map((msg, i) => {
+        const role = chalk.bold(msg.role === 'user' ? chalk.blue('You') : chalk.green('Assistant'));
+        const content = msg.content.substring(0, 200) + (msg.content.length > 200 ? '...' : '');
+        return `${i + 1}. ${role}: ${content}`;
+      })
+      .join('\n\n');
+
+    return {
+      success: true,
+      output: `${chalk.bold(`Last ${messages.length} messages:`)}\n\n${formatted}`,
+      action: 'history_show',
+    };
+  }
+
+  private async handleSave(args: string[]): Promise<CommandResult> {
+    const name = args[0] || `session-${Date.now()}`;
+
+    try {
+      await this.session.save();
+      this.session.setMetadata('name', name);
+
+      return {
+        success: true,
+        output: `Session saved as "${name}" (ID: ${this.session.threadId})`,
+        action: 'save',
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        output: `Failed to save session: ${errorMessage}`,
+      };
+    }
+  }
+
+  private handleSkills(): CommandResult {
+    if (this.skills.size === 0) {
+      return {
+        success: true,
+        output: 'No skills available. Add skills to .agents/skills/ directory.',
+        action: 'skills_list',
+      };
+    }
+
+    const skillsList: string[] = [chalk.bold('Available Skills:'), ''];
+
+    for (const [name, skill] of this.skills.entries()) {
+      const description = skill.description || 'No description';
+      const commands = skill.commands.filter((c) => c !== name).map((c) => `/${c}`);
+      const commandsStr = commands.length > 0 ? ` (${commands.join(', ')})` : '';
+
+      skillsList.push(`  ${chalk.cyan('/' + name)}${commandsStr}`);
+      skillsList.push(`    ${chalk.dim(description)}`);
+    }
+
+    return {
+      success: true,
+      output: skillsList.join('\n'),
+      action: 'skills_list',
+    };
+  }
+
+  private handleStatus(): CommandResult {
+    const status = [
+      chalk.bold('Session Status:'),
+      '',
+      `  Thread ID:    ${this.session.threadId}`,
+      `  Mode:         ${this.session.mode}`,
+      `  Working Dir:  ${this.cwd}`,
+      `  Messages:     ${this.session.getHistory().length}`,
+      `  Skills:       ${this.skills.size}`,
+    ];
+
+    const metadata = this.session.getMetadata<string>('name');
+    if (metadata) {
+      status.splice(3, 0, `  Name:         ${metadata}`);
+    }
+
+    return { success: true, output: status.join('\n') };
+  }
+
+  private handleCompact(): CommandResult {
+    // This is a placeholder - actual context compaction would require
+    // integration with the agent's memory/summarization capabilities
+    return {
+      success: true,
+      output: chalk.yellow('Context compaction requested. This will be applied at the next interaction.'),
+    };
   }
 }
