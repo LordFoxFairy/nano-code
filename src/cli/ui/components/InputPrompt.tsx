@@ -9,19 +9,32 @@ interface InputPromptProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  /** Whether plan mode is active */
+  planMode?: boolean;
 }
 
 export const InputPrompt: React.FC<InputPromptProps> = ({
-  prompt = '›',
+  prompt = '>',
   onSubmit,
   value,
   onChange,
   disabled = false,
+  planMode = false,
 }) => {
+  // Build the prompt with plan mode indicator
+  const promptColor = planMode ? theme.warning : theme.primary;
+
   return (
     <Box flexDirection="row" paddingY={1}>
+      {planMode && (
+        <Box marginRight={1}>
+          <Text color={theme.warning} bold>
+            [PLAN]
+          </Text>
+        </Box>
+      )}
       <Box marginRight={1}>
-        <Text color={theme.primary} bold>
+        <Text color={promptColor} bold>
           {prompt}
         </Text>
       </Box>
@@ -30,7 +43,7 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
           value={value}
           onChange={onChange}
           onSubmit={onSubmit}
-          placeholder="Type a message (or /help)..."
+          placeholder={planMode ? "Plan mode: changes tracked but not executed..." : "Type a message (or /help)..."}
         />
       )}
       {disabled && <Text color={theme.text.dim}>Processing...</Text>}

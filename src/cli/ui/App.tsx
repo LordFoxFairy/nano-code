@@ -13,6 +13,7 @@ import { HITLApproval } from './components/HITLApproval.js';
 import { Session } from '../session.js';
 import { parseMessage } from '../message-utils.js';
 import { NanoCodeAgent } from '../../agent/factory.js';
+import { CommandHandler } from '../commands.js';
 
 // HITL interrupt types from deepagents/langchain
 interface HITLActionRequest {
@@ -73,7 +74,9 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
   });
   const [pendingHITL, setPendingHITL] = useState<HITLRequest | null>(null);
   const [hitlConfig, setHitlConfig] = useState<{ thread_id: string } | null>(null);
+  const [planModeActive, setPlanModeActive] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const commandHandlerRef = useRef<CommandHandler>(new CommandHandler(session));
 
   // Handle Ctrl+C - abort streaming or exit
   useInput((input, key) => {
@@ -212,8 +215,8 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
       if (value.startsWith('/')) {
         const parts = value.trim().split(/\s+/);
         const command = parts[0];
-        const args = parts.slice(1);
 
+        // Handle basic commands inline for faster response
         if (command === '/clear' || command === '/reset') {
           await session.clear();
           setMessages([]);
@@ -224,48 +227,23 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
           exit();
           return;
         }
-        if (command === '/model') {
-          const model = args[0];
-          if (model && ['opus', 'sonnet', 'haiku'].includes(model)) {
+
+        // Use the command handler for all other commands
+        const result = await commandHandlerRef.current.handle(value);
+
+        // Handle plan mode changes
+        if (result.planModeChange) {
+          const planMode = commandHandlerRef.current.getPlanMode();
+          setPlanModeActive(planMode.isActive);
+        }
+
+        // Update model info if /model command
+        if (command === '/model' && result.success) {
+          const model = parts[1];
+          if (model) {
             session.setMode(model);
             setModelInfo((prev) => ({ ...prev, model }));
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: Date.now().toString(),
-                role: 'system',
-                content: `Switched to ${model} mode.`,
-              },
-            ]);
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: Date.now().toString(),
-                role: 'system',
-                content: `Usage: /model <opus|sonnet|haiku>`,
-                isError: true,
-              },
-            ]);
           }
-          setIsStreaming(false);
-          return;
-        }
-        if (command === '/help') {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              role: 'system',
-              content: `Available Commands:
-/help           Show this help message
-/model [name]   Switch model (opus, sonnet, haiku)
-/clear          Clear conversation context
-/exit           Exit NanoCode`,
-            },
-          ]);
-          setIsStreaming(false);
-          return;
         }
 
         setMessages((prev) => [
@@ -273,8 +251,8 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
           {
             id: Date.now().toString(),
             role: 'system',
-            content: `Unknown command: ${command}`,
-            isError: true,
+            content: result.output,
+            isError: !result.success,
           },
         ]);
         setIsStreaming(false);
@@ -500,12 +478,14 @@ export const App: React.FC<AppProps> = ({ agent, session }) => {
           onChange={setInputValue}
           onSubmit={handleSubmit}
           disabled={isStreaming || !!pendingHITL}
+          planMode={planModeActive}
         />
         <StatusBar
           model={modelInfo.model}
           tokens={Math.round(modelInfo.tokens)}
           cost={modelInfo.tokens * 0.000003}
           isProcessing={isStreaming}
+          planMode={planModeActive}
         />
       </Box>
     </Box>

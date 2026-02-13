@@ -16,11 +16,14 @@ interface StreamChunk {
   tool_calls?: ToolCall[];
 }
 
+import { FileAutocomplete } from './autocomplete.js';
+
 export class REPL {
   private rl: readline.Interface;
   private commandHandler: CommandHandler;
   private renderer: StreamingRenderer;
   private keybindingManager: KeybindingManager;
+  private fileAutocomplete: FileAutocomplete;
   private isStreaming: boolean = false;
   private abortController: AbortController | null = null;
   private history: string[] = [];
@@ -29,10 +32,18 @@ export class REPL {
     private agent: { stream: (input: unknown, config: unknown) => Promise<AsyncIterable<unknown>> },
     private session: Session,
   ) {
+    this.fileAutocomplete = new FileAutocomplete();
+
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       prompt: this.getPrompt(),
+      completer: (line: string, callback: (err: any, result: [string[], string]) => void) => {
+        this.fileAutocomplete.complete(line).then(
+          (result) => callback(null, result),
+          (err) => callback(err, [[], line])
+        );
+      }
     });
 
     this.commandHandler = new CommandHandler(session);

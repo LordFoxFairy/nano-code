@@ -9,6 +9,7 @@ import { getUsageStats } from '../middleware/agent-middleware.js';
 import { getPluginManager, PluginManager } from '../plugins/manager.js';
 import { handlePermissions } from '../permissions/index.js';
 import { KeybindingManager } from './keybindings.js';
+import { getPlanMode, PlanMode } from './plan-mode.js';
 
 export interface LSPServerConfig {
   name: string;
@@ -32,7 +33,9 @@ export interface CommandResult {
   allowedTools?: string[];
   model?: string;
   /** Flag indicating a history/save action was performed */
-  action?: 'save' | 'history_show' | 'skills_list' | 'mcp_status' | 'keybindings_list';
+  action?: 'save' | 'history_show' | 'skills_list' | 'mcp_status' | 'keybindings_list' | 'plan_mode';
+  /** Plan mode state change */
+  planModeChange?: 'enter' | 'exit' | 'accept' | 'reject';
 }
 
 /**
@@ -69,6 +72,7 @@ export class CommandHandler {
   private mcpServers: Map<string, MCPServerStatus> = new Map();
   private lspServers: Map<string, LSPServerStatus> = new Map();
   private keybindingManager: KeybindingManager;
+  private planMode: PlanMode;
 
   constructor(
     private readonly session: Session,
@@ -76,9 +80,24 @@ export class CommandHandler {
   ) {
     this.cwd = cwd || process.cwd();
     this.keybindingManager = new KeybindingManager();
+    this.planMode = getPlanMode();
     this.loadSkills();
     this.loadMCPConfig();
     this.initializeLSPServers();
+  }
+
+  /**
+   * Get the plan mode instance
+   */
+  getPlanMode(): PlanMode {
+    return this.planMode;
+  }
+
+  /**
+   * Check if plan mode is active
+   */
+  isPlanModeActive(): boolean {
+    return this.planMode.isActive;
   }
 
   /**
@@ -428,6 +447,22 @@ export class CommandHandler {
         return handlePermissions(args);
       case '/keybindings':
         return this.handleKeybindings();
+      case '/plan':
+        return await this.handlePlan(args);
+      case '/plan:accept':
+        return await this.handlePlanAccept();
+      case '/plan:reject':
+        return await this.handlePlanReject(args);
+      case '/plan:show':
+        return this.handlePlanShow();
+      case '/plan:save':
+        return await this.handlePlanSave(args);
+      case '/plan:load':
+        return await this.handlePlanLoad(args);
+      case '/plan:list':
+        return await this.handlePlanList();
+      case '/plan:auto':
+        return this.handlePlanAutoAccept(args);
 
       default:
         // Check for skill command
@@ -473,8 +508,10 @@ export class CommandHandler {
   }
 
   private handleHelp(): CommandResult {
+    const planModeIndicator = this.planMode.isActive ? chalk.yellow(' [PLAN MODE ACTIVE]') : '';
+
     const mainHelp = [
-      chalk.bold('Available Commands:'),
+      chalk.bold('Available Commands:') + planModeIndicator,
       '  /help           Show this help message',
       '  /model [name]   Switch model (opus, sonnet, haiku)',
       '  /clear          Clear conversation context (starts new thread)',
@@ -493,6 +530,16 @@ export class CommandHandler {
       '  /permissions    Manage tool permission rules',
       '  /keybindings    Show keyboard shortcuts',
       '  /exit           Exit NanoCode',
+      '',
+      chalk.bold('Plan Mode Commands:'),
+      '  /plan           Enter plan mode (track changes without executing)',
+      '  /plan:accept    Accept and execute all proposed changes',
+      '  /plan:reject [feedback]  Reject plan with optional feedback',
+      '  /plan:show      Show current proposed changes',
+      '  /plan:save [name]  Save current plan to disk',
+      '  /plan:load <id> Load a saved plan',
+      '  /plan:list      List all saved plans',
+      '  /plan:auto [on|off]  Toggle auto-accept mode',
     ];
 
     if (this.skills.size > 0) {
@@ -1350,6 +1397,379 @@ export class CommandHandler {
     }
 
     return { success: true, output: output.join('\n') };
+  }
+
+  // ============================================
+  // Plan Mode Commands
+  // ============================================
+
+  /**
+   * Handle /plan command - Enter plan mode or show status
+   */
+  private async handlePlan(args: string[]): Promise<CommandResult> {
+    const subcommand = args[0]?.toLowerCase();
+
+    // If no subcommand, toggle plan mode
+    if (!subcommand) {
+      if (this.planMode.isActive) {
+        // Exit plan mode
+        await this.planMode.exit();
+        return {
+          success: true,
+          output: chalk.green('Exited plan mode. Changes were not executed.'),
+          action: 'plan_mode',
+          planModeChange: 'exit',
+        };
+      } else {
+        // Enter plan mode
+        await this.planMode.enter(this.session.id);
+        return {
+          success: true,
+          output: [
+            chalk.green('Entered plan mode.'),
+            '',
+            chalk.dim('In plan mode, changes are proposed but not executed.'),
+            chalk.dim('Use /plan:show to see proposed changes.'),
+            chalk.dim('Use /plan:accept to execute all changes.'),
+            chalk.dim('Use /plan:reject [feedback] to reject and provide feedback.'),
+          ].join('\n'),
+          action: 'plan_mode',
+          planModeChange: 'enter',
+        };
+      }
+    }
+
+    // Handle subcommands
+    switch (subcommand) {
+      case 'on':
+      case 'enter':
+        if (this.planMode.isActive) {
+          return {
+            success: true,
+            output: chalk.yellow('Already in plan mode.'),
+          };
+        }
+        await this.planMode.enter(this.session.id, args[1]);
+        return {
+          success: true,
+          output: chalk.green('Entered plan mode.'),
+          action: 'plan_mode',
+          planModeChange: 'enter',
+        };
+
+      case 'off':
+      case 'exit':
+        if (!this.planMode.isActive) {
+          return {
+            success: true,
+            output: chalk.yellow('Not in plan mode.'),
+          };
+        }
+        await this.planMode.exit();
+        return {
+          success: true,
+          output: chalk.green('Exited plan mode.'),
+          action: 'plan_mode',
+          planModeChange: 'exit',
+        };
+
+      case 'status':
+        return this.handlePlanShow();
+
+      default:
+        return {
+          success: false,
+          output: chalk.red(`Unknown plan subcommand: ${subcommand}`),
+        };
+    }
+  }
+
+  /**
+   * Handle /plan:accept - Accept and execute all proposed changes
+   */
+  private async handlePlanAccept(): Promise<CommandResult> {
+    if (!this.planMode.isActive) {
+      return {
+        success: false,
+        output: chalk.red('Not in plan mode. Use /plan to enter plan mode first.'),
+      };
+    }
+
+    const summary = this.planMode.getSummary();
+
+    if (summary.pendingCount === 0) {
+      return {
+        success: false,
+        output: chalk.yellow('No pending changes to accept.'),
+      };
+    }
+
+    // Approve all pending changes
+    const approvedCount = await this.planMode.approveAll();
+
+    // Note: Actual execution would be handled by the agent middleware
+    // Here we just approve and let the caller know changes are ready
+
+    const output = [
+      chalk.green(`Approved ${approvedCount} change(s).`),
+      '',
+      chalk.bold('Approved Changes:'),
+      this.planMode.formatChanges(this.planMode.approvedChanges),
+      '',
+      chalk.dim('Changes will be executed when you continue the conversation.'),
+    ];
+
+    return {
+      success: true,
+      output: output.join('\n'),
+      action: 'plan_mode',
+      planModeChange: 'accept',
+    };
+  }
+
+  /**
+   * Handle /plan:reject - Reject plan with optional feedback
+   */
+  private async handlePlanReject(args: string[]): Promise<CommandResult> {
+    if (!this.planMode.isActive) {
+      return {
+        success: false,
+        output: chalk.red('Not in plan mode. Use /plan to enter plan mode first.'),
+      };
+    }
+
+    const feedback = args.join(' ').trim() || undefined;
+    const summary = this.planMode.getSummary();
+
+    if (summary.pendingCount === 0 && summary.approvedCount === 0) {
+      return {
+        success: false,
+        output: chalk.yellow('No changes to reject.'),
+      };
+    }
+
+    // Reject all pending changes
+    const rejectedCount = await this.planMode.rejectAll(feedback);
+
+    const output = [
+      chalk.red(`Rejected ${rejectedCount} change(s).`),
+    ];
+
+    if (feedback) {
+      output.push('');
+      output.push(chalk.dim(`Feedback: ${feedback}`));
+    }
+
+    output.push('');
+    output.push(chalk.dim('Feedback will be provided to the assistant.'));
+
+    return {
+      success: true,
+      output: output.join('\n'),
+      action: 'plan_mode',
+      planModeChange: 'reject',
+    };
+  }
+
+  /**
+   * Handle /plan:show - Show current proposed changes
+   */
+  private handlePlanShow(): CommandResult {
+    const summary = this.planMode.getSummary();
+
+    if (!this.planMode.isActive && summary.totalChanges === 0) {
+      return {
+        success: true,
+        output: [
+          chalk.dim('Plan mode is not active.'),
+          '',
+          chalk.dim('Use /plan to enter plan mode.'),
+        ].join('\n'),
+      };
+    }
+
+    const statusText = this.planMode.isActive
+      ? chalk.green('Active')
+      : chalk.dim('Inactive');
+
+    const autoAcceptText = summary.autoAccept
+      ? chalk.green('On')
+      : chalk.dim('Off');
+
+    const output = [
+      chalk.bold('Plan Status'),
+      '',
+      `  ${chalk.cyan('Status:')}       ${statusText}`,
+      `  ${chalk.cyan('Plan ID:')}      ${summary.planId?.substring(0, 8) || 'N/A'}`,
+      `  ${chalk.cyan('Plan Name:')}    ${summary.planName || 'Unnamed'}`,
+      `  ${chalk.cyan('Auto-Accept:')}  ${autoAcceptText}`,
+      '',
+      chalk.bold('Changes Summary'),
+      `  ${chalk.yellow('Pending:')}     ${summary.pendingCount}`,
+      `  ${chalk.green('Approved:')}    ${summary.approvedCount}`,
+      `  ${chalk.red('Rejected:')}    ${summary.rejectedCount}`,
+      `  ${chalk.blue('Executed:')}    ${summary.executedCount}`,
+      `  ${chalk.dim('Total:')}       ${summary.totalChanges}`,
+    ];
+
+    if (summary.totalChanges > 0) {
+      output.push('');
+      output.push(chalk.bold('Proposed Changes:'));
+      output.push(this.planMode.formatChanges());
+    }
+
+    return {
+      success: true,
+      output: output.join('\n'),
+      action: 'plan_mode',
+    };
+  }
+
+  /**
+   * Handle /plan:save - Save current plan to disk
+   */
+  private async handlePlanSave(args: string[]): Promise<CommandResult> {
+    if (!this.planMode.isActive) {
+      return {
+        success: false,
+        output: chalk.red('Not in plan mode. Use /plan to enter plan mode first.'),
+      };
+    }
+
+    const name = args.join(' ').trim() || undefined;
+
+    try {
+      const planPath = await this.planMode.save(name);
+      const summary = this.planMode.getSummary();
+
+      return {
+        success: true,
+        output: [
+          chalk.green(`Plan saved successfully.`),
+          '',
+          `  ${chalk.cyan('Name:')}    ${summary.planName}`,
+          `  ${chalk.cyan('ID:')}      ${summary.planId?.substring(0, 8)}`,
+          `  ${chalk.cyan('Changes:')} ${summary.totalChanges}`,
+          `  ${chalk.cyan('Path:')}    ${planPath}`,
+        ].join('\n'),
+        action: 'plan_mode',
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        output: chalk.red(`Failed to save plan: ${error}`),
+      };
+    }
+  }
+
+  /**
+   * Handle /plan:load - Load a saved plan
+   */
+  private async handlePlanLoad(args: string[]): Promise<CommandResult> {
+    const planId = args[0];
+
+    if (!planId) {
+      return {
+        success: false,
+        output: chalk.red('Usage: /plan:load <plan-id>'),
+      };
+    }
+
+    const plan = await this.planMode.load(planId);
+
+    if (!plan) {
+      return {
+        success: false,
+        output: chalk.red(`Plan not found: ${planId}`),
+      };
+    }
+
+    return {
+      success: true,
+      output: [
+        chalk.green(`Plan loaded successfully.`),
+        '',
+        `  ${chalk.cyan('Name:')}    ${plan.name}`,
+        `  ${chalk.cyan('ID:')}      ${plan.id.substring(0, 8)}`,
+        `  ${chalk.cyan('Changes:')} ${plan.changes.length}`,
+        `  ${chalk.cyan('Status:')}  ${plan.status}`,
+        '',
+        chalk.dim('Use /plan:show to view changes.'),
+      ].join('\n'),
+      action: 'plan_mode',
+      planModeChange: 'enter',
+    };
+  }
+
+  /**
+   * Handle /plan:list - List all saved plans
+   */
+  private async handlePlanList(): Promise<CommandResult> {
+    const plans = await this.planMode.listPlans();
+
+    if (plans.length === 0) {
+      return {
+        success: true,
+        output: chalk.dim('No saved plans found.'),
+      };
+    }
+
+    const output = [chalk.bold('Saved Plans:'), ''];
+
+    for (const plan of plans) {
+      const date = new Date(plan.updatedAt).toLocaleString();
+      const id = plan.id.substring(0, 8);
+      const isCurrent = this.planMode.plan?.id === plan.id;
+      const marker = isCurrent ? chalk.green('● ') : '  ';
+      const currentLabel = isCurrent ? chalk.green(' (current)') : '';
+
+      output.push(`${marker}${chalk.cyan(id)}: ${chalk.bold(plan.name)}${currentLabel}`);
+      output.push(`    ${chalk.dim(date)} • ${plan.changesCount} changes`);
+    }
+
+    output.push('');
+    output.push(chalk.dim('Use /plan:load <id> to load a plan'));
+
+    return {
+      success: true,
+      output: output.join('\n'),
+      action: 'plan_mode',
+    };
+  }
+
+  /**
+   * Handle /plan:auto - Toggle auto-accept mode
+   */
+  private handlePlanAutoAccept(args: string[]): CommandResult {
+    const value = args[0]?.toLowerCase();
+
+    if (value === 'on' || value === 'true' || value === '1') {
+      this.planMode.setAutoAccept(true);
+      return {
+        success: true,
+        output: chalk.green('Auto-accept enabled. Changes will be automatically approved.'),
+      };
+    } else if (value === 'off' || value === 'false' || value === '0') {
+      this.planMode.setAutoAccept(false);
+      return {
+        success: true,
+        output: chalk.green('Auto-accept disabled. Changes require manual approval.'),
+      };
+    } else if (!value) {
+      // Toggle
+      const newValue = !this.planMode.autoAccept;
+      this.planMode.setAutoAccept(newValue);
+      return {
+        success: true,
+        output: chalk.green(`Auto-accept ${newValue ? 'enabled' : 'disabled'}.`),
+      };
+    }
+
+    return {
+      success: false,
+      output: chalk.red('Usage: /plan:auto [on|off]'),
+    };
   }
 
 }

@@ -6,6 +6,7 @@ import { loadConfig } from '../core/config/loader.js';
 import { AgentFactory } from '../agent/factory.js';
 import { Session } from './session.js';
 import { App } from './ui/App.js';
+import { getPlanMode } from './plan-mode.js';
 
 export async function main() {
   const program = new Command();
@@ -17,6 +18,7 @@ export async function main() {
     .option('--resume <id>', 'Resume a specific session')
     .option('--new', 'Start a new session')
     .option('--mode <mode>', 'Router mode (opus, sonnet, haiku)')
+    .option('--plan', 'Start in plan mode (track changes without executing)')
     .parse(process.argv);
 
   const options = program.opts();
@@ -75,6 +77,14 @@ export async function main() {
 
     // Update session mode
     session!.setMode(mode);
+
+    // Initialize plan mode if --plan flag is set
+    if (options.plan) {
+      const planMode = getPlanMode();
+      await planMode.enter(session!.id);
+      console.log(chalk.yellow('Starting in plan mode. Changes will be tracked but not executed.'));
+      console.log(chalk.dim('Use /plan:accept to execute changes, /plan:reject to discard.'));
+    }
 
     // 3. Create Agent
     const factory = new AgentFactory({

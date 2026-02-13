@@ -7,6 +7,8 @@ interface StatusBarProps {
   tokens: number;
   cost: number;
   isProcessing?: boolean;
+  /** Whether plan mode is active */
+  planMode?: boolean;
 }
 
 const formatTokens = (tokens: number): string => {
@@ -37,24 +39,38 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   tokens,
   cost,
   isProcessing = false,
+  planMode = false,
 }) => {
+  const borderColor = planMode ? theme.warning : theme.border.default;
+
   return (
     <Box
       flexDirection="row"
       justifyContent="space-between"
       borderStyle="single"
-      borderColor={theme.border.default}
+      borderColor={borderColor}
       paddingX={1}
     >
       <Box flexDirection="row">
+        {planMode && (
+          <Text color={theme.warning} bold>
+            PLAN MODE{' '}
+          </Text>
+        )}
         <Text color={theme.primary}>{getModelDisplayName(model)}</Text>
         {isProcessing && <Text color={theme.warning}> (processing)</Text>}
       </Box>
 
       <Box flexDirection="row">
         <Text color={theme.text.dim}>{formatTokens(tokens)} tokens</Text>
-        <Text color={theme.border.default}> │ </Text>
+        <Text color={theme.border.default}> | </Text>
         <Text color={theme.text.dim}>{formatCost(cost)}</Text>
+        {planMode && (
+          <>
+            <Text color={theme.border.default}> | </Text>
+            <Text color={theme.warning}>changes tracked</Text>
+          </>
+        )}
       </Box>
     </Box>
   );
