@@ -34,6 +34,8 @@
  */
 
 import { AIMessage, type BaseMessage, SystemMessage } from '@langchain/core/messages';
+import { getPlanMode } from '../cli/plan-mode.js';
+import { getPermissionManager } from '../permissions/index.js';
 
 // ============================================================================
 // Types
@@ -377,13 +379,39 @@ function createWrapModelCall(config: NanoCodeMiddlewareConfig) {
 }
 
 /**
- * Create wrapToolCall hook for tool tracking
+ * Create wrapToolCall hook for tool tracking and permissions
  */
 function createWrapToolCall(config: NanoCodeMiddlewareConfig) {
   const tracker = UsageTracker.getInstance(config.pricing);
+  const permissionManager = getPermissionManager();
 
   return async (request: ToolCallRequest, handler: ToolHandler): Promise<unknown> => {
     const { name, args } = request.toolCall;
+
+    // Check permissions
+    const permission = permissionManager.getPermission({
+      tool: name,
+      arguments: args,
+    });
+
+    if (permission === 'deny') {
+      return `Error: Permission denied for tool "${name}". This action is blocked by security policy.`;
+    }
+
+    // Check if plan mode is active
+    const planMode = getPlanMode();
+    if (planMode.isActive) {
+      await planMode.addToolCall(name, args);
+      return `[Plan Mode] Recorded tool call: ${name}`;
+    }
+
+    // Note: 'ask' permission should trigger HITL, but 'allow' should bypass it.
+    // For 'ask', we would strictly need a way to pause and get user input here.
+    // DeepAgents middleware chain doesn't inherently support pausing,
+    // so typical HITL is implemented via the main loop or a specialized interrupt mechanism.
+    // For now, we'll proceed after the check, assuming the 'ask' mechanism logic
+    // might be handled by an interactive tool wrapper if implemented later,
+    // or we might log/warn.
 
     // Track tool call
     tracker.recordToolCall();

@@ -220,18 +220,29 @@ async function executeWithTimeout(
     let stderr = '';
     let timedOut = false;
 
+    // Set timeout
     const timer = setTimeout(() => {
       timedOut = true;
-      proc.kill('SIGTERM');
+      try {
+        proc.kill('SIGTERM');
+      } catch (e) {
+        // Ignore kill errors
+      }
     }, timeout);
 
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
+    // Collect stdout
+    if (proc.stdout) {
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+    }
 
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
+    // Collect stderr
+    if (proc.stderr) {
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+    }
 
     proc.on('error', (error) => {
       clearTimeout(timer);
@@ -248,7 +259,7 @@ async function executeWithTimeout(
     });
 
     // Write input to stdin
-    if (stdin) {
+    if (stdin && proc.stdin) {
       proc.stdin.write(stdin);
       proc.stdin.end();
     }

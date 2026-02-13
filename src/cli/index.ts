@@ -7,6 +7,8 @@ import { AgentFactory } from '../agent/factory.js';
 import { Session } from './session.js';
 import { App } from './ui/App.js';
 import { getPlanMode } from './plan-mode.js';
+import { initializeHookManager, getHookManager } from '../hooks/manager.js';
+import { getPluginManager } from '../plugins/manager.js';
 
 export async function main() {
   const program = new Command();
@@ -26,6 +28,16 @@ export async function main() {
   try {
     // 1. Load Config
     const config = await loadConfig();
+
+    // Initialize Hook and Plugin Managers
+    const hookManager = initializeHookManager();
+    const pluginManager = getPluginManager(config);
+    try {
+      await pluginManager.init(process.cwd());
+      await hookManager.loadFromDirectory(process.cwd());
+    } catch (error) {
+      console.warn(chalk.yellow('Failed to load plugins/hooks:'), error);
+    }
 
     // 2. Initialize Session
     let session: Session | null = null;
@@ -64,6 +76,11 @@ export async function main() {
     // Start auto-save (every 5 minutes)
     session!.startAutoSave();
 
+    // Notify session start
+    try {
+      await hookManager.sessionStart();
+    } catch (ignore) {}
+
     // Determine mode
     let mode = session!.mode; // Default to session mode (which defaults to 'sonnet')
 
@@ -101,6 +118,9 @@ export async function main() {
 
     // 5. Cleanup: Save session on exit
     await session!.end();
+    try {
+      await hookManager.sessionEnd(Date.now() - session!.createdAt);
+    } catch (ignore) {}
   } catch (err: unknown) {
     const error = err instanceof Error ? err : new Error(String(err));
     console.error(chalk.red('Fatal Error:'), error.message);
