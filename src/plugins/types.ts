@@ -19,7 +19,7 @@ export const PluginManifestSchema = z.object({
   }).optional(),
 
   // Plugin configuration schema
-  config: z.record(z.any()).optional(),
+  config: z.record(z.unknown()).optional(),
 });
 
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
@@ -30,10 +30,10 @@ export interface Plugin {
   manifest: PluginManifest;
 
   // Loaded resources
-  skills: Map<string, any>;
-  commands: Map<string, any>;
-  agents: Map<string, any>;
-  hooks: Map<string, any>;
+  skills: Map<string, unknown>;
+  commands: Map<string, unknown>;
+  agents: Map<string, unknown>;
+  hooks: Map<string, unknown>;
 
   isActive: boolean;
 }
@@ -41,6 +41,6 @@ export interface Plugin {
 export interface PluginContext {
   // Context passed to plugin functions
   cwd: string;
-  config: Record<string, any>;
-  logger: any; // Replace with actual logger type
+  config: Record<string, unknown>;
+  logger: unknown; // Replace with actual logger type
 }

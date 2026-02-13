@@ -32,15 +32,17 @@ export class PermissionRule {
     return { ...this.config };
   }
 
-  private serializeArgs(args: any): string {
+  private serializeArgs(args: unknown): string {
     if (typeof args === 'string') return args;
     if (typeof args !== 'object' || args === null) return String(args);
 
+    const obj = args as Record<string, unknown>;
+
     // For common tool structures where 'command' or 'path' is the main thing to check
-    if (args.command) return args.command;
-    if (args.path) return args.path;
-    if (args.file_path) return args.file_path;
-    if (args.url) return args.url;
+    if (typeof obj.command === 'string') return obj.command;
+    if (typeof obj.path === 'string') return obj.path;
+    if (typeof obj.file_path === 'string') return obj.file_path;
+    if (typeof obj.url === 'string') return obj.url;
 
     // Fallback to JSON string
     return JSON.stringify(args);

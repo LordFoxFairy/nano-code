@@ -125,13 +125,13 @@ export class MCPManager {
       return new (class extends StructuredTool {
         name = `${name}__${tool.name}`; // Namespaced to avoid conflicts
         description = tool.description || "";
-        schema = schema;
+        schema = schema as z.ZodType<unknown>;
 
-        async _call(arg: any): Promise<string> {
+        async _call(arg: unknown): Promise<string> {
           try {
             const result = await client.callTool({
               name: tool.name,
-              arguments: arg,
+              arguments: arg as Record<string, unknown>,
             });
 
             // Format result
@@ -139,22 +139,23 @@ export class MCPManager {
                 throw new Error(JSON.stringify(result));
             }
 
-            // Type assertion since SDK types might be generic
-            const content = (result.content as any[]);
+            const content = result.content;
 
             if (!content || !Array.isArray(content)) {
                 return JSON.stringify(result);
             }
 
             return content
-              .map(c => {
-                if (c.type === 'text') return c.text;
-                if (c.type === 'image') return `[Image: ${c.mimeType}]`;
-                return JSON.stringify(c);
+              .map((c: unknown) => {
+                const item = c as { type: string; text?: string; mimeType?: string };
+                if (item.type === 'text' && typeof item.text === 'string') return item.text;
+                if (item.type === 'image') return `[Image: ${item.mimeType}]`;
+                return JSON.stringify(item);
               })
               .join('\n');
-          } catch (error: any) {
-            return `Error calling tool ${tool.name}: ${error.message}`;
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            return `Error calling tool ${tool.name}: ${errorMessage}`;
           }
         }
       })();
@@ -169,8 +170,10 @@ export class MCPManager {
    * Note: This is a simplified conversion. For complex schemas,
    * a proper library like json-schema-to-zod might be needed.
    */
-  private jsonSchemaToZod(jsonSchema: any): z.ZodType<any> {
-    if (!jsonSchema || !jsonSchema.properties) {
+  private jsonSchemaToZod(jsonSchema: unknown): z.ZodType<unknown> {
+    const schema = jsonSchema as { properties?: Record<string, { type: string; description?: string }>; required?: string[] };
+
+    if (!schema || !schema.properties) {
       return z.object({});
     }
 
@@ -181,14 +184,14 @@ export class MCPManager {
     // Ideally use `z.object({}).passthrough()` or map properties manually.
 
     // Very basic mapping for demonstration
-    const shape: Record<string, any> = {};
-    for (const [key, prop] of Object.entries<any>(jsonSchema.properties)) {
+    const shape: Record<string, z.ZodTypeAny> = {};
+    for (const [key, prop] of Object.entries(schema.properties)) {
         if (prop.type === 'string') shape[key] = z.string().describe(prop.description || "");
         else if (prop.type === 'number') shape[key] = z.number().describe(prop.description || "");
         else if (prop.type === 'boolean') shape[key] = z.boolean().describe(prop.description || "");
-        else shape[key] = z.any().describe(prop.description || "");
+        else shape[key] = z.unknown().describe(prop.description || "");
 
-        if (jsonSchema.required?.includes(key) === false) {
+        if (!schema.required?.includes(key)) {
              shape[key] = shape[key].optional();
         }
     }

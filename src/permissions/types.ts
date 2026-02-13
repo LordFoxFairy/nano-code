@@ -14,5 +14,5 @@ export interface PermissionConfig {
 
 export interface PermissionRequest {
   tool: string;
-  arguments: any;
+  arguments: Record<string, unknown>;
 }

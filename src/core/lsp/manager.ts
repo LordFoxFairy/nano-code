@@ -20,9 +20,9 @@ class LSPServer extends EventEmitter {
   private config: LSPServerConfig;
   private messageBuffer: string = '';
   private requestId: number = 0;
-  private pendingRequests: Map<number, { resolve: (value: any) => void; reject: (reason: any) => void }> = new Map();
+  private pendingRequests: Map<number, { resolve: (value: unknown) => void; reject: (reason: unknown) => void }> = new Map();
   private initialized: boolean = false;
-  private capabilities: any = {};
+  private capabilities: Record<string, unknown> = {};
   public language: string;
 
   constructor(language: string, config: LSPServerConfig) {
@@ -152,7 +152,7 @@ class LSPServer extends EventEmitter {
     }
   }
 
-  public async sendRequest<T>(method: string, params: any): Promise<T> {
+  public async sendRequest<T>(method: string, params: unknown): Promise<T> {
     if (!this.process) {
       throw new Error(`LSP server for ${this.language} is not running`);
     }
@@ -170,12 +170,15 @@ class LSPServer extends EventEmitter {
     const header = `Content-Length: ${contentLength}\r\n\r\n`;
 
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject: reject as (reason: unknown) => void
+      });
       this.process!.stdin?.write(header + message);
     });
   }
 
-  public sendNotification(method: string, params: any): void {
+  public sendNotification(method: string, params: unknown): void {
     if (!this.process) {
       return;
     }
@@ -268,7 +271,7 @@ class LSPServer extends EventEmitter {
     };
 
     try {
-      const result = await this.sendRequest<any>('initialize', params);
+      const result = await this.sendRequest<{ capabilities: Record<string, unknown> }>('initialize', params);
       this.capabilities = result.capabilities;
       this.initialized = true;
       this.sendNotification('initialized', {});
@@ -328,7 +331,7 @@ class LSPServer extends EventEmitter {
   public async getCompletion(filePath: string, line: number, character: number): Promise<LSPCompletionItem[]> {
     const uri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
     try {
-      const result = await this.sendRequest<any>('textDocument/completion', {
+      const result = await this.sendRequest<LSPCompletionItem[] | { items: LSPCompletionItem[] }>('textDocument/completion', {
         textDocument: { uri },
         position: { line, character },
       });

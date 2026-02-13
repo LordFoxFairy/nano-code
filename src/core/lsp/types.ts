@@ -6,7 +6,7 @@ export interface LSPServerConfig {
   args: string[];
   languages: string[];
   rootUri: string;
-  initializationOptions?: Record<string, any>;
+  initializationOptions?: Record<string, unknown>;
 }
 
 export interface LSPPosition {
@@ -115,7 +115,7 @@ export interface LSPInitializeParams {
     version?: string;
   };
   rootUri: string | null;
-  capabilities: any;
+  capabilities: Record<string, unknown>;
   trace?: 'off' | 'messages' | 'verbose';
   workspaceFolders?: {
     uri: string;
@@ -138,7 +138,7 @@ export interface LSPInitializeResult {
     referencesProvider?: boolean;
     documentSymbolProvider?: boolean;
     workspaceSymbolProvider?: boolean;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   serverInfo?: {
     name: string;
@@ -149,24 +149,24 @@ export interface LSPInitializeResult {
 export interface JSONRPCRequest {
   jsonrpc: '2.0';
   method: string;
-  params?: any;
+  params?: unknown;
   id: number | string;
 }
 
 export interface JSONRPCNotification {
   jsonrpc: '2.0';
   method: string;
-  params?: any;
+  params?: unknown;
 }
 
 export interface JSONRPCResponse {
   jsonrpc: '2.0';
   id: number | string | null;
-  result?: any;
+  result?: unknown;
   error?: {
     code: number;
     message: string;
-    data?: any;
+    data?: unknown;
   };
 }
 
