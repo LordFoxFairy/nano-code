@@ -5,6 +5,7 @@ import os from 'os';
 import { execSync } from 'child_process';
 import type { Session } from './session.js';
 import type { MCPServerConfig } from '../core/config/types.js';
+import { getUsageStats, formatUsageStats } from '../middleware/agent-middleware.js';
 
 export interface LSPServerConfig {
   name: string;
@@ -404,6 +405,8 @@ export class CommandHandler {
         return this.handleStatus();
       case '/compact':
         return this.handleCompact();
+      case '/context':
+        return this.handleContext();
       case '/lsp':
         return this.handleLSP(args);
       case '/mcp':
@@ -463,6 +466,7 @@ export class CommandHandler {
       '  /skills         List all available skills',
       '  /status         Show current session status',
       '  /compact        Summarize and compact context',
+      '  /context        Show context/token usage visualization',
       '  /mcp            Show MCP server status and tools',
       '  /lsp            Manage language servers',
       '  /exit           Exit NanoCode',
@@ -599,6 +603,82 @@ export class CommandHandler {
       success: true,
       output: chalk.yellow('Context compaction requested. This will be applied at the next interaction.'),
     };
+  }
+
+  /**
+   * Handle /context command - Show token usage visualization
+   */
+  private handleContext(): CommandResult {
+    const stats = getUsageStats();
+    const maxContextTokens = 200000; // Claude context window
+
+    // Calculate context usage percentage
+    const usagePercent = Math.min(100, (stats.totalTokens / maxContextTokens) * 100);
+    const barWidth = 40;
+    const filledWidth = Math.round((usagePercent / 100) * barWidth);
+    const emptyWidth = barWidth - filledWidth;
+
+    // Color based on usage level
+    const getBarColor = (percent: number): typeof chalk => {
+      if (percent < 50) return chalk.green;
+      if (percent < 75) return chalk.yellow;
+      if (percent < 90) return chalk.hex('#FFA500'); // Orange
+      return chalk.red;
+    };
+
+    const barColor = getBarColor(usagePercent);
+    const progressBar = barColor('█'.repeat(filledWidth)) + chalk.dim('░'.repeat(emptyWidth));
+
+    // Format token numbers
+    const formatTokens = (n: number): string => {
+      if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+      if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+      return n.toString();
+    };
+
+    // Calculate time running
+    const duration = stats.lastUpdateTime - stats.startTime;
+    const minutes = Math.floor(duration / 60000);
+    const seconds = Math.floor((duration % 60000) / 1000);
+    const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+    // Build output
+    const output = [
+      chalk.bold('Context Usage'),
+      '',
+      `  [${progressBar}] ${usagePercent.toFixed(1)}%`,
+      '',
+      chalk.bold('Token Breakdown:'),
+      `  ${chalk.cyan('Input:')}     ${formatTokens(stats.totalInputTokens).padStart(8)} tokens`,
+      `  ${chalk.cyan('Output:')}    ${formatTokens(stats.totalOutputTokens).padStart(8)} tokens`,
+      `  ${chalk.cyan('Total:')}     ${formatTokens(stats.totalTokens).padStart(8)} tokens`,
+      '',
+    ];
+
+    // Add cache stats if available
+    if (stats.cacheReadTokens > 0 || stats.cacheWriteTokens > 0) {
+      output.push(chalk.bold('Cache Stats:'));
+      output.push(`  ${chalk.dim('Read:')}      ${formatTokens(stats.cacheReadTokens).padStart(8)} tokens`);
+      output.push(`  ${chalk.dim('Write:')}     ${formatTokens(stats.cacheWriteTokens).padStart(8)} tokens`);
+      output.push('');
+    }
+
+    output.push(chalk.bold('Session Stats:'));
+    output.push(`  ${chalk.dim('Model Calls:')} ${stats.modelCalls}`);
+    output.push(`  ${chalk.dim('Tool Calls:')}  ${stats.toolCalls}`);
+    output.push(`  ${chalk.dim('Duration:')}    ${timeStr}`);
+    output.push(`  ${chalk.dim('Est. Cost:')}   $${stats.estimatedCost.toFixed(4)}`);
+
+    // Add warnings if context is getting full
+    if (usagePercent >= 90) {
+      output.push('');
+      output.push(chalk.red('⚠ Context almost full! Consider using /compact to summarize.'));
+    } else if (usagePercent >= 75) {
+      output.push('');
+      output.push(chalk.yellow('⚡ Context getting full. /compact available when needed.'));
+    }
+
+    return { success: true, output: output.join('\n') };
   }
 
   /**
