@@ -6,6 +6,20 @@ import { execSync } from 'child_process';
 import type { Session } from './session.js';
 import type { MCPServerConfig } from '../core/config/types.js';
 
+export interface LSPServerConfig {
+  name: string;
+  command: string;
+  args: string[];
+  languages: string[];
+}
+
+export interface LSPServerStatus {
+  name: string;
+  config: LSPServerConfig;
+  status: 'running' | 'stopped' | 'error';
+  error?: string;
+}
+
 export interface CommandResult {
   success: boolean;
   output: string;
@@ -49,6 +63,7 @@ export class CommandHandler {
   private commandToSkill: Map<string, SkillDefinition> = new Map();
   private cwd: string;
   private mcpServers: Map<string, MCPServerStatus> = new Map();
+  private lspServers: Map<string, LSPServerStatus> = new Map();
 
   constructor(
     private readonly session: Session,
@@ -57,6 +72,7 @@ export class CommandHandler {
     this.cwd = cwd || process.cwd();
     this.loadSkills();
     this.loadMCPConfig();
+    this.initializeLSPServers();
   }
 
   /**
@@ -386,6 +402,8 @@ export class CommandHandler {
         return this.handleStatus();
       case '/compact':
         return this.handleCompact();
+      case '/lsp':
+        return this.handleLSP(args);
       case '/mcp':
         return this.handleMCP(args);
 
@@ -444,6 +462,7 @@ export class CommandHandler {
       '  /status         Show current session status',
       '  /compact        Summarize and compact context',
       '  /mcp            Show MCP server status and tools',
+      '  /lsp            Manage language servers',
       '  /exit           Exit NanoCode',
     ];
 
@@ -900,5 +919,154 @@ export class CommandHandler {
       return `Type: ${config.type}`;
     }
     return 'Unknown configuration';
+  }
+
+  private initializeLSPServers() {
+    const defaults: LSPServerConfig[] = [
+      { name: 'typescript', command: 'typescript-language-server', args: ['--stdio'], languages: ['typescript', 'javascript', 'ts', 'js'] },
+      { name: 'python', command: 'pylsp', args: [], languages: ['python', 'py'] },
+      { name: 'rust', command: 'rust-analyzer', args: [], languages: ['rust', 'rs'] },
+      { name: 'go', command: 'gopls', args: [], languages: ['go'] },
+    ];
+
+    for (const config of defaults) {
+      this.lspServers.set(config.name, {
+        name: config.name,
+        config,
+        status: 'stopped',
+      });
+    }
+  }
+
+  private handleLSP(args: string[]): CommandResult {
+    const subcommand = args[0]?.toLowerCase();
+
+    switch (subcommand) {
+      case 'start':
+        return this.handleLSPStart(args[1]);
+      case 'stop':
+        return this.handleLSPStop(args[1]);
+      case 'restart':
+        return this.handleLSPRestart(args[1]);
+      case 'supported':
+        return this.handleLSPSupported();
+      default:
+        return this.handleLSPStatus();
+    }
+  }
+
+  private handleLSPStatus(): CommandResult {
+    if (this.lspServers.size === 0) {
+      return { success: true, output: chalk.dim('No LSP servers configured.') };
+    }
+
+    const output = [
+      chalk.bold('LSP Status'),
+      '',
+    ];
+
+    const runningCount = Array.from(this.lspServers.values()).filter((s) => s.status === 'running').length;
+
+    output.push(`  Running Servers: ${runningCount}/${this.lspServers.size}`);
+    output.push('');
+    output.push(chalk.bold('Server Status:'));
+
+    for (const [name, server] of this.lspServers.entries()) {
+      const statusColor = server.status === 'running' ? chalk.green :
+        server.status === 'error' ? chalk.red : chalk.dim;
+      const statusIcon = server.status === 'running' ? '●' :
+        server.status === 'error' ? '✗' : '○';
+
+      output.push(`  ${statusIcon} ${chalk.bold(name)} ${statusColor(server.status)}`);
+      if (server.error) {
+        output.push(`    Error: ${chalk.red(server.error)}`);
+      }
+    }
+
+    output.push('');
+    output.push(chalk.dim('Use /lsp start <lang> to start a server'));
+    output.push(chalk.dim('Use /lsp supported to see supported languages'));
+
+    return { success: true, output: output.join('\n'), action: 'mcp_status' };
+  }
+
+  private handleLSPSupported(): CommandResult {
+    const output = [chalk.bold('Supported Languages:'), ''];
+
+    for (const [name, server] of this.lspServers.entries()) {
+      output.push(`${chalk.cyan(name)}:`);
+      output.push(`  Command: ${server.config.command} ${server.config.args.join(' ')}`);
+      output.push(`  Languages: ${server.config.languages.join(', ')}`);
+      output.push('');
+    }
+
+    return { success: true, output: output.join('\n') };
+  }
+
+  private handleLSPStart(language?: string): CommandResult {
+    if (!language) return { success: false, output: chalk.red('Usage: /lsp start <language>') };
+
+    const server = this.findServer(language);
+    if (!server) return { success: false, output: chalk.red(`No LSP server configured for "${language}"`) };
+
+    if (server.status === 'running') {
+      return { success: true, output: chalk.yellow(`LSP server for ${server.name} is already running.`) };
+    }
+
+    // Check binaries
+    if (!this.checkCommandExists(server.config.command)) {
+      server.status = 'error';
+      server.error = 'Binary not found';
+      return {
+        success: false,
+        output: chalk.red(`Failed to start ${server.name} LSP.\nCommand "${server.config.command}" not found in PATH.\nPlease install the language server.`)
+      };
+    }
+
+    server.status = 'running';
+    server.error = undefined;
+
+    return { success: true, output: chalk.green(`Started ${server.name} LSP server.`) };
+  }
+
+  private handleLSPStop(language?: string): CommandResult {
+    if (!language) return { success: false, output: chalk.red('Usage: /lsp stop <language>') };
+
+    const server = this.findServer(language);
+    if (!server) return { success: false, output: chalk.red(`No LSP server configured for "${language}"`) };
+
+    if (server.status === 'stopped') {
+      return { success: true, output: chalk.yellow(`LSP server for ${server.name} is already stopped.`) };
+    }
+
+    server.status = 'stopped';
+    return { success: true, output: chalk.green(`Stopped ${server.name} LSP server.`) };
+  }
+
+  private handleLSPRestart(language?: string): CommandResult {
+    if (!language) return { success: false, output: chalk.red('Usage: /lsp restart <language>') };
+    const stopResult = this.handleLSPStop(language);
+    if (!stopResult.success && !stopResult.output.includes('already stopped')) return stopResult;
+    return this.handleLSPStart(language);
+  }
+
+  private findServer(query: string): LSPServerStatus | undefined {
+    // Try exact name match
+    if (this.lspServers.has(query)) return this.lspServers.get(query);
+
+    // Try language match
+    for (const server of this.lspServers.values()) {
+      if (server.config.languages.includes(query)) return server;
+    }
+    return undefined;
+  }
+
+  private checkCommandExists(command: string): boolean {
+    try {
+      execSync(`command -v ${command}`, { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

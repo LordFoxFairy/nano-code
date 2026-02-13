@@ -3,10 +3,12 @@ import { StructuredTool } from '@langchain/core/tools';
 import { WebFetchTool } from './tools/webfetch.js';
 import { WebSearchTool } from './tools/websearch.js';
 import { MultiEditTool } from './tools/multiedit.js';
+import { LSPTool } from './tools/lsp.js';
 
 export { WebFetchTool, createWebFetchTool } from './tools/webfetch.js';
 export { WebSearchTool, createWebSearchTool } from './tools/websearch.js';
 export { MultiEditTool, createMultiEditTool } from './tools/multiedit.js';
+export { LSPTool } from './tools/lsp.js';
 export type { EditOperation, FileEdit, EditResult } from './tools/multiedit.js';
 
 export class AskUserTool extends StructuredTool {
@@ -61,6 +63,8 @@ export interface NanoCodeToolsOptions {
   multiEditOptions?: {
     cwd?: string;
   };
+  /** Enable LSP tool for code intelligence */
+  enableLSP?: boolean;
 }
 
 /**
@@ -85,6 +89,12 @@ export function getNanoCodeTools(options?: NanoCodeToolsOptions): StructuredTool
   if (options?.enableMultiEdit !== false) {
     // Enabled by default
     tools.push(new MultiEditTool(options?.multiEditOptions));
+  }
+
+  // Add LSP tool if enabled
+  if (options?.enableLSP !== false) {
+    // Enabled by default
+    tools.push(new LSPTool());
   }
 
   return tools;
