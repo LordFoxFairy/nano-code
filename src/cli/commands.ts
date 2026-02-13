@@ -5,7 +5,10 @@ import os from 'os';
 import { execSync } from 'child_process';
 import type { Session } from './session.js';
 import type { MCPServerConfig } from '../core/config/types.js';
-import { getUsageStats, formatUsageStats } from '../middleware/agent-middleware.js';
+import { getUsageStats } from '../middleware/agent-middleware.js';
+import { getPluginManager, PluginManager } from '../plugins/manager.js';
+import { handlePermissions } from '../permissions/index.js';
+import { KeybindingManager } from './keybindings.js';
 
 export interface LSPServerConfig {
   name: string;
@@ -29,7 +32,7 @@ export interface CommandResult {
   allowedTools?: string[];
   model?: string;
   /** Flag indicating a history/save action was performed */
-  action?: 'save' | 'history_show' | 'skills_list' | 'mcp_status';
+  action?: 'save' | 'history_show' | 'skills_list' | 'mcp_status' | 'keybindings_list';
 }
 
 /**
@@ -65,12 +68,14 @@ export class CommandHandler {
   private cwd: string;
   private mcpServers: Map<string, MCPServerStatus> = new Map();
   private lspServers: Map<string, LSPServerStatus> = new Map();
+  private keybindingManager: KeybindingManager;
 
   constructor(
     private readonly session: Session,
     cwd?: string,
   ) {
     this.cwd = cwd || process.cwd();
+    this.keybindingManager = new KeybindingManager();
     this.loadSkills();
     this.loadMCPConfig();
     this.initializeLSPServers();
@@ -399,6 +404,12 @@ export class CommandHandler {
         return this.handleHistory(args);
       case '/save':
         return await this.handleSave(args);
+      case '/resume':
+        return await this.handleResume(args);
+      case '/rename':
+        return await this.handleRename(args);
+      case '/sessions':
+        return await this.handleSessions();
       case '/skills':
         return this.handleSkills();
       case '/status':
@@ -411,6 +422,12 @@ export class CommandHandler {
         return this.handleLSP(args);
       case '/mcp':
         return this.handleMCP(args);
+      case '/plugins':
+        return await this.handlePlugins(args);
+      case '/permissions':
+        return handlePermissions(args);
+      case '/keybindings':
+        return this.handleKeybindings();
 
       default:
         // Check for skill command
@@ -462,6 +479,9 @@ export class CommandHandler {
       '  /model [name]   Switch model (opus, sonnet, haiku)',
       '  /clear          Clear conversation context (starts new thread)',
       '  /history [n]    Show conversation history (last n messages)',
+      '  /resume [id]    Resume a previous session (by ID or name)',
+      '  /rename <name>  Rename the current session',
+      '  /sessions       List saved sessions',
       '  /save [name]    Save current session with optional name',
       '  /skills         List all available skills',
       '  /status         Show current session status',
@@ -469,6 +489,9 @@ export class CommandHandler {
       '  /context        Show context/token usage visualization',
       '  /mcp            Show MCP server status and tools',
       '  /lsp            Manage language servers',
+      '  /plugins        Manage installed plugins',
+      '  /permissions    Manage tool permission rules',
+      '  /keybindings    Show keyboard shortcuts',
       '  /exit           Exit NanoCode',
     ];
 
@@ -1151,4 +1174,183 @@ export class CommandHandler {
       return false;
     }
   }
+
+  private handleKeybindings(): CommandResult {
+    const bindings = this.keybindingManager.getKeybindings();
+    const output = [chalk.bold('Keyboard Shortcuts:'), ''];
+
+    for (const binding of bindings) {
+      const keys = this.keybindingManager.formatKeybinding(binding);
+      output.push(`  ${chalk.cyan(keys.padEnd(15))} ${binding.description}`);
+    }
+
+    output.push('');
+    output.push(chalk.dim('Note: Some shortcuts may depend on terminal support'));
+
+    return {
+      success: true,
+      output: output.join('\n'),
+      action: 'keybindings_list',
+    };
+  }
+
+  /**
+   * Handle /resume command - Resume a previous session
+   */
+  private async handleResume(args: string[]): Promise<CommandResult> {
+    const query = args[0];
+
+    if (!query) {
+      // Show sessions list if no argument provided
+      return await this.handleSessions();
+    }
+
+    // Import Session class dynamically to avoid circular dependencies
+    const { Session } = await import('./session.js');
+    const sessionData = await Session.find(query);
+
+    if (!sessionData) {
+      return {
+        success: false,
+        output: chalk.red(`Session not found matching "${query}"`),
+      };
+    }
+
+    // Build info about the session found
+    const name = String(sessionData.metadata?.name || '(unnamed)');
+    const date = new Date(sessionData.updatedAt).toLocaleString();
+    const msgs = sessionData.messages.length;
+
+    const output = [
+      chalk.bold('Found Session:'),
+      '',
+      `  ${chalk.cyan('ID:')}       ${sessionData.id}`,
+      `  ${chalk.cyan('Name:')}     ${name}`,
+      `  ${chalk.cyan('Updated:')}  ${date}`,
+      `  ${chalk.cyan('Messages:')} ${msgs}`,
+      `  ${chalk.cyan('Mode:')}     ${sessionData.mode}`,
+      '',
+      chalk.dim('To resume this session, restart NanoCode with:'),
+      `  ${chalk.cyan(`minicode --resume ${sessionData.id.substring(0, 8)}`)}`,
+      '',
+      chalk.dim('(Dynamic session switching will be available in a future update)'),
+    ];
+
+    return {
+      success: true,
+      output: output.join('\n'),
+    };
+  }
+
+  /**
+   * Handle /rename command - Rename the current session
+   */
+  private async handleRename(args: string[]): Promise<CommandResult> {
+    const name = args.join(' ').trim();
+    if (!name) {
+      return {
+        success: false,
+        output: chalk.red('Usage: /rename <new-name>'),
+      };
+    }
+
+    this.session.setMetadata('name', name);
+    // Auto-save after rename
+    await this.session.save();
+
+    return {
+      success: true,
+      output: chalk.green(`Session renamed to "${name}"`),
+    };
+  }
+
+  /**
+   * Handle /sessions command - List all saved sessions
+   */
+  private async handleSessions(): Promise<CommandResult> {
+    // Import Session class dynamically to avoid circular dependencies
+    const { Session } = await import('./session.js');
+    const sessions = await Session.list();
+
+    if (sessions.length === 0) {
+      return {
+        success: true,
+        output: chalk.dim('No saved sessions found.\n\nUse /save to save the current session.'),
+      };
+    }
+
+    const output = [chalk.bold('Saved Sessions:'), ''];
+
+    for (const s of sessions) {
+      const date = new Date(s.updatedAt).toLocaleString();
+      const name = String(s.metadata?.name || '(unnamed)');
+      const msgs = s.messages.length;
+      const id = s.id.substring(0, 8);
+
+      // Mark current session
+      const isCurrent = s.id === this.session.id;
+      const marker = isCurrent ? chalk.green('● ') : '  ';
+      const currentLabel = isCurrent ? chalk.green(' (current)') : '';
+
+      output.push(`${marker}${chalk.cyan(id)}: ${chalk.bold(name)}${currentLabel}`);
+      output.push(`    ${chalk.dim(date)} • ${msgs} messages • ${s.mode}`);
+    }
+
+    output.push('');
+    output.push(chalk.dim('Use /resume <id|name> to view session details'));
+    output.push(chalk.dim('Use --resume <id> flag when starting to resume a session'));
+
+    return {
+      success: true,
+      output: output.join('\n'),
+    };
+  }
+
+  /**
+   * Handle /plugins command
+   */
+  private async handlePlugins(args: string[]): Promise<CommandResult> {
+    const subcommand = args[0]?.toLowerCase();
+    const pluginManager = getPluginManager();
+
+    if (!pluginManager) {
+      return {
+        success: false,
+        output: chalk.red('Plugin manager not initialized.'),
+      };
+    }
+
+    switch (subcommand) {
+      case 'list':
+      default:
+        return this.handlePluginsList(pluginManager);
+    }
+  }
+
+  private handlePluginsList(pluginManager: PluginManager): CommandResult {
+    const plugins = pluginManager.getPlugins();
+
+    if (plugins.length === 0) {
+      return {
+        success: true,
+        output: chalk.dim('No plugins installed.'),
+      };
+    }
+
+    const output = [chalk.bold('Installed Plugins:'), ''];
+
+    for (const plugin of plugins) {
+      const manifest = plugin.manifest;
+      const statusIcon = chalk.green('●');
+
+      output.push(`${statusIcon} ${chalk.bold(manifest.name)} v${manifest.version}`);
+      if (manifest.description) {
+        output.push(`    ${chalk.dim(manifest.description)}`);
+      }
+    }
+
+    return { success: true, output: output.join('\n') };
+  }
+
 }
+

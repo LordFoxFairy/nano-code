@@ -30,6 +30,9 @@ export interface SessionEventData {
 
 export type SessionEventHandler = (data: SessionEventData) => void | Promise<void>;
 
+// Default auto-save interval (5 minutes)
+const DEFAULT_AUTOSAVE_INTERVAL = 5 * 60 * 1000;
+
 export class Session {
   id: string;
   threadId: string;
@@ -41,6 +44,8 @@ export class Session {
 
   private eventHandlers: Map<SessionEvent, SessionEventHandler[]> = new Map();
   private isRestored: boolean = false;
+  private autoSaveTimer: ReturnType<typeof setInterval> | null = null;
+  private isDirty: boolean = false;
 
   constructor(data?: SessionData) {
     this.id = data?.id || randomUUID();
@@ -93,6 +98,7 @@ export class Session {
   addMessage(msg: Message): void {
     this.messages.push(msg);
     this.updatedAt = Date.now();
+    this.isDirty = true;
   }
 
   /**
@@ -105,6 +111,7 @@ export class Session {
   setMode(mode: string): void {
     this.mode = mode;
     this.updatedAt = Date.now();
+    this.isDirty = true;
   }
 
   /**
@@ -113,6 +120,7 @@ export class Session {
   setMetadata(key: string, value: unknown): void {
     this.metadata[key] = value;
     this.updatedAt = Date.now();
+    this.isDirty = true;
   }
 
   /**
@@ -132,9 +140,44 @@ export class Session {
 
   /**
    * End the session (call before exiting)
+   * Automatically saves if there are unsaved changes
    */
   async end(): Promise<void> {
+    this.stopAutoSave();
+    if (this.isDirty) {
+      await this.save();
+    }
     await this.emit('end');
+  }
+
+  /**
+   * Start auto-save timer
+   * @param interval - Auto-save interval in milliseconds (default: 5 minutes)
+   */
+  startAutoSave(interval: number = DEFAULT_AUTOSAVE_INTERVAL): void {
+    this.stopAutoSave();
+    this.autoSaveTimer = setInterval(async () => {
+      if (this.isDirty) {
+        await this.save();
+      }
+    }, interval);
+  }
+
+  /**
+   * Stop auto-save timer
+   */
+  stopAutoSave(): void {
+    if (this.autoSaveTimer) {
+      clearInterval(this.autoSaveTimer);
+      this.autoSaveTimer = null;
+    }
+  }
+
+  /**
+   * Check if session has unsaved changes
+   */
+  hasUnsavedChanges(): boolean {
+    return this.isDirty;
   }
 
   /**
@@ -163,7 +206,7 @@ export class Session {
    * Get the session storage directory
    */
   static getSessionsDir(): string {
-    return path.join(homedir(), '.agents', 'sessions');
+    return path.join(homedir(), '.nanocode', 'sessions');
   }
 
   /**
@@ -242,6 +285,33 @@ export class Session {
   }
 
   /**
+   * Find a session by name or ID (partial match supported for ID)
+   */
+  static async find(query: string): Promise<SessionData | null> {
+    const sessions = await Session.list();
+
+    // 1. Try exact ID match
+    const exactId = sessions.find(s => s.id === query);
+    if (exactId) return exactId;
+
+    // 2. Try exact Name match
+    const exactName = sessions.find(s => s.metadata?.name === query);
+    if (exactName) return exactName;
+
+    // 3. Try partial ID match (start of ID)
+    const partialId = sessions.find(s => s.id.startsWith(query));
+    if (partialId) return partialId;
+
+    // 4. Try partial Name match (case insensitive)
+    const partialName = sessions.find(
+      s => String(s.metadata?.name || '').toLowerCase().includes(query.toLowerCase())
+    );
+    if (partialName) return partialName;
+
+    return null;
+  }
+
+  /**
    * Delete a session from storage
    */
   static async delete(id: string): Promise<boolean> {
@@ -261,6 +331,18 @@ export class Session {
     const sessionPath = path.join(Session.getSessionsDir(), `${this.id}.json`);
     await fs.ensureDir(path.dirname(sessionPath));
     await fs.writeJSON(sessionPath, this.toJSON(), { spaces: 2 });
+    this.isDirty = false;
     await this.emit('save');
+  }
+
+  /**
+   * Get summary info about the session
+   */
+  getSummary(): { name: string; messageCount: number; lastUsedAt: Date } {
+    return {
+      name: (this.metadata.name as string) || `Session ${this.id.substring(0, 8)}`,
+      messageCount: this.messages.length,
+      lastUsedAt: new Date(this.updatedAt),
+    };
   }
 }

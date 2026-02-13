@@ -28,15 +28,39 @@ export async function main() {
     // 2. Initialize Session
     let session: Session | null = null;
     if (options.resume) {
+      // Try loading by ID or partial ID
       session = await Session.load(options.resume);
       if (!session) {
+        // Try finding by partial ID or name
+        const sessionData = await Session.find(options.resume);
+        if (sessionData) {
+          session = await Session.load(sessionData.id);
+        }
+      }
+      if (!session) {
         console.error(chalk.red(`Session ${options.resume} not found.`));
+        console.error(chalk.dim('Use /sessions to list available sessions.'));
         process.exit(1);
       }
+      console.log(chalk.green(`Resumed session: ${session.getMetadata('name') || session.id.substring(0, 8)}`));
+    } else if (!options.new) {
+      // Try to resume most recent session unless --new flag is set
+      const latestSession = await Session.loadLatest();
+      if (latestSession && latestSession.messages.length > 0) {
+        // Only auto-resume if there's actual conversation history
+        session = latestSession;
+        const name = session.getMetadata<string>('name') || `Session ${session.id.substring(0, 8)}`;
+        console.log(chalk.dim(`Resuming: ${name} (use --new to start fresh)`));
+      } else {
+        session = new Session();
+      }
     } else {
-      // New session
+      // --new flag: explicitly start a new session
       session = new Session();
     }
+
+    // Start auto-save (every 5 minutes)
+    session!.startAutoSave();
 
     // Determine mode
     let mode = session!.mode; // Default to session mode (which defaults to 'sonnet')
@@ -64,6 +88,9 @@ export async function main() {
     // 4. Start UI
     const { waitUntilExit } = render(React.createElement(App, { agent, session }));
     await waitUntilExit();
+
+    // 5. Cleanup: Save session on exit
+    await session!.end();
   } catch (err: unknown) {
     const error = err instanceof Error ? err : new Error(String(err));
     console.error(chalk.red('Fatal Error:'), error.message);

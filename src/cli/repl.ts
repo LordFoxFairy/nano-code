@@ -4,6 +4,7 @@ import { Session } from './session.js';
 import { CommandHandler } from './commands.js';
 import { StreamingRenderer } from './renderer.js';
 import { parseMessage, MessageLike } from './message-utils.js';
+import { KeybindingManager, KeyAction } from './keybindings.js';
 
 interface ToolCall {
   name?: string;
@@ -19,6 +20,7 @@ export class REPL {
   private rl: readline.Interface;
   private commandHandler: CommandHandler;
   private renderer: StreamingRenderer;
+  private keybindingManager: KeybindingManager;
   private isStreaming: boolean = false;
   private abortController: AbortController | null = null;
   private history: string[] = [];
@@ -35,8 +37,10 @@ export class REPL {
 
     this.commandHandler = new CommandHandler(session);
     this.renderer = new StreamingRenderer(process.stdout);
+    this.keybindingManager = new KeybindingManager();
 
     this.setupSignalHandlers();
+    this.setupKeybindings();
   }
 
   private getPrompt(): string {
@@ -224,5 +228,59 @@ ${chalk.blue('╰─>')} `;
         process.exit(0);
       }
     });
+  }
+
+  /**
+   * Setup keybindings for special keyboard shortcuts
+   */
+  private setupKeybindings() {
+    // Note: readline keypress events are limited in what they can capture
+    // For more advanced keybindings, consider using a library like keypress or blessed
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+      // The keypress handler is already handled by readline
+      // We use the signal handlers for Ctrl+C and could extend for others
+
+      // Handle Ctrl+L for clear screen via readline
+      this.rl.on('line', () => {});
+
+      // For Ctrl+L, we can use the SIGWINCH-like approach or just document it
+      // Most terminals handle Ctrl+L natively for clear screen
+    }
+  }
+
+  /**
+   * Clear the terminal screen
+   */
+  private clearScreen() {
+    process.stdout.write('\x1B[2J\x1B[0f');
+    this.rl.prompt();
+  }
+
+  /**
+   * Handle a keybinding action
+   */
+  private handleKeyAction(action: KeyAction) {
+    switch (action) {
+      case KeyAction.ABORT:
+        if (this.isStreaming && this.abortController) {
+          this.abortController.abort();
+        }
+        break;
+      case KeyAction.CLEAR_SCREEN:
+        this.clearScreen();
+        break;
+      case KeyAction.HISTORY_SEARCH:
+        console.log(chalk.dim('\nHistory search not yet implemented.'));
+        this.rl.prompt();
+        break;
+      case KeyAction.OPEN_EDITOR:
+        console.log(chalk.dim('\nExternal editor not yet implemented.'));
+        this.rl.prompt();
+        break;
+      default:
+        // No action
+        break;
+    }
   }
 }
