@@ -35,7 +35,8 @@ export type SecurityCategory =
   | 'fork_bomb'
   | 'path_traversal'
   | 'code_injection'
-  | 'data_exfiltration';
+  | 'data_exfiltration'
+  | 'obfuscation';
 
 /**
  * Security pattern definition
@@ -418,6 +419,44 @@ export const SECURITY_PATTERNS: SecurityPattern[] = [
     category: 'path_traversal',
     severity: 'warn',
     description: 'PWD with traversal',
+  },
+
+  // ==================== OBFUSCATION / EVASION ====================
+  {
+    pattern: /base64\s+-d/,
+    category: 'obfuscation',
+    severity: 'block',
+    description: 'Base64 decoding (potential obfuscation)',
+  },
+  {
+    pattern: /echo\s+.*\\x[0-9a-fA-F]{2}/,
+    category: 'obfuscation',
+    severity: 'block',
+    description: 'Hex encoded payload',
+  },
+  {
+    pattern: /(\$\w+){2,}/,
+    category: 'obfuscation',
+    severity: 'warn',
+    description: 'Excessive variable substitution',
+  },
+  {
+    pattern: /\$\(.*\)\s*-rf/,
+    category: 'obfuscation',
+    severity: 'block',
+    description: 'Command substitution with destructive flags',
+  },
+  {
+    pattern: /`.*`\s*-rf/,
+    category: 'obfuscation',
+    severity: 'block',
+    description: 'Backtick execution with destructive flags',
+  },
+  {
+    pattern: /[^\x20-\x7E\t\n\r]/,
+    category: 'obfuscation',
+    severity: 'warn',
+    description: 'Non-printable/Unicode characters (potential evasion)',
   },
 ];
 

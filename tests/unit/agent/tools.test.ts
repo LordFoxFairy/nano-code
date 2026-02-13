@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AskUserTool, getNanoCodeTools, WebFetchTool, MultiEditTool } from '../../../src/agent/tools';
+import { AskUserTool, getNanoCodeTools, WebFetchTool, WebSearchTool, MultiEditTool } from '../../../src/agent/tools';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -50,26 +50,37 @@ describe('AskUserTool', () => {
 });
 
 describe('getNanoCodeTools', () => {
-    it('should return AskUserTool, WebFetchTool, and MultiEditTool by default', () => {
+    it('should return all tools by default', () => {
         const tools = getNanoCodeTools();
+        expect(tools).toHaveLength(4);
+        expect(tools[0]).toBeInstanceOf(AskUserTool);
+        expect(tools[1]).toBeInstanceOf(WebFetchTool);
+        expect(tools[2]).toBeInstanceOf(WebSearchTool);
+        expect(tools[3]).toBeInstanceOf(MultiEditTool);
+    });
+
+    it('should allow disabling WebFetch', () => {
+        const tools = getNanoCodeTools({ enableWebFetch: false });
+        expect(tools).toHaveLength(3);
+        expect(tools[0]).toBeInstanceOf(AskUserTool);
+        expect(tools[1]).toBeInstanceOf(WebSearchTool);
+        expect(tools[2]).toBeInstanceOf(MultiEditTool);
+    });
+
+    it('should allow disabling WebSearch', () => {
+        const tools = getNanoCodeTools({ enableWebSearch: false });
         expect(tools).toHaveLength(3);
         expect(tools[0]).toBeInstanceOf(AskUserTool);
         expect(tools[1]).toBeInstanceOf(WebFetchTool);
         expect(tools[2]).toBeInstanceOf(MultiEditTool);
     });
 
-    it('should allow disabling WebFetch', () => {
-        const tools = getNanoCodeTools({ enableWebFetch: false });
-        expect(tools).toHaveLength(2);
-        expect(tools[0]).toBeInstanceOf(AskUserTool);
-        expect(tools[1]).toBeInstanceOf(MultiEditTool);
-    });
-
     it('should allow disabling MultiEdit', () => {
         const tools = getNanoCodeTools({ enableMultiEdit: false });
-        expect(tools).toHaveLength(2);
+        expect(tools).toHaveLength(3);
         expect(tools[0]).toBeInstanceOf(AskUserTool);
         expect(tools[1]).toBeInstanceOf(WebFetchTool);
+        expect(tools[2]).toBeInstanceOf(WebSearchTool);
     });
 });
 
